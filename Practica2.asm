@@ -1,11 +1,17 @@
 ; multi-segment executable file template.
 
 data segment
+    ;++++++++++++++++++++++++++++++++++++++++++++++++ Mensajes +++++++++++++++++++++++++++++++++++++++++++++
+    ;Mensaje Final
     pkey                db "Programa finalizado...$"
+    
     ;String de un salto de linea                    
-    saltoLin            db 0Dh,0Ah,"$" 
+    saltoLin            db 0Dh,0Ah,"$"
 
-    ;string del encabezado principal
+    ;Mensaje de Archivo Analizado
+    stringArchAna       db "Se Termin",0A2h," de Analizar el Archivo.","$"
+
+    ;++++++++++++++++++++++++++++ String del encabezado y menú principal +++++++++++++++++++++++++++++++++
     stringEncabezado    db "Universidad de San Carlos de Guatemala",0Dh,0Ah
                         db "Facultad de Ingenieria",0Dh,0Ah
                         db "Escuela de Ciencias y Sistemas",0Dh,0Ah
@@ -19,24 +25,50 @@ data segment
                         db "3- Factorial",0Dh,0Ah
                         db "4- Reporte",0Dh,0Ah
                         db "5- Salir",0Dh,0Ah,"$"
-    ;String del menu leer archivo
+    ;++++++++++++++++++++++++++++++++++++++++ String del menu leer archivo +++++++++++++++++++++++++++++++++++
     strEncLeerArchivo   db "---------------------------------CARGAR ARCHIVO--------------------------------",0Dh,0Ah
                         db "Ingrese la direcci",0A2h,"n del archivo: ",0Dh,0Ah
                         db 22h,"El formato de la direcci",0A2h,"n es ##<direccion>.arq##",22h,"$"
 
+    ;++++++++++++++++++++++++++++++++++++++++ String del Menu de operaciones ++++++++++++++++++++++++++++++++++
+    ;string Menu operaciones
+    stringMenOp         db "--------------------------------MENU OPERACIONES-------------------------------",0Dh,0Ah
+                        db "1- Resultado",0Dh,0Ah
+                        db "2- Notaci",0A2h,"n Prefija",0Dh,0Ah
+                        db "3- Notaci",0A2h,"n Posfija",0Dh,0Ah                 
+                        db "4- Salir",0Dh,0Ah,"$"
+    ;++++++++++++++++++++++++++++++++++++++++ Mensajes de Error +++++++++++++++++++++++++++++++++++++++++++++++
     ;mensaje de error, formato de la direccion invalido
     erForInvDir         db "El formato de la direccion no es correcta",0Dh,0Ah
                         db "El formato correcto es ##<Direccion>##","$"
     
     ;mensaje de error al abrir el archivo
     erAbrArch           db "El archivo buscado no se encuentra...","$"
+    ;mensaje de error, Caracter Invalido
+    erCarInv            db "Caracter Invalido: ","$"
+    ;mensaje de error, Número Invalido
+    erNumInv            db "Error Caracter Invalido en el Número: ","$"
+    ;mensaje de error, se esperaba fin de archivo 
+    erFinArch           db "Se esperaba fin de archivo despues de punto y coma: ","$"
 
+    ;mensaje de error, no se encontro el fin de archivo ;
+    erNoFinArch         db "Se esperaba fin de archivo ;","$"
+
+    ;+++++++++++++++++++++++++++++++++++++++++++++ Variables ++++++++++++++++++++++++++++++++++++++++++++++++++
     ;Direccion del archivo
     pathArchivo         db 50 dup(0)
     ;Dirección del archivo de reporte
     pathArchivoRep      db 50 dup(0)
     ;datos del archivo
     datosArchivo        db 1000 dup(0)
+    ;identificador del arhivo de entrada
+    handle              dw ?
+
+    ;-------- Variables bandera ----------
+    ;hubo error
+    hayError            db 0
+    ;ya se ingresó el fin de archivo
+    finArchivo          db 0
 ends
 
 stack segment
@@ -44,6 +76,15 @@ stack segment
 ends
 
 code segment
+    
+    ;++++++++++++++++++++++++++++++++++++++++++ Macros ++++++++++++++++++++++++++++++++++++++++++++++++
+    ;imprime un caracter en pantalla
+    imprimirChar macro char
+         mov DL, char                               ;valor del parametro char a DL
+         mov AH, 02h                                ;funcion 2, imprimir byte en pantalla
+         int 21h                                    ;se llama a la interrupcion
+    endm
+
     ;Macro para imprimir una cadena, recibe un parametro
     imprimir macro str
         mov AH,09h                                  ;funcion para imprimir en pantalla
@@ -51,18 +92,13 @@ code segment
         int 21H
     endm
 
-    ;Compara sí es una la tecla presionada
-    esTecla macro tecla
-        call pausa                                  ;llama a la interrupción para esperar una tecla
-        cmp AL,offset tecla                         ;compara si el valor ingresado es la tecla del parametro
-    endm
-
     ;Hace una pausa en la ejecución del código,
     ;espera una pulsación de tecla para continuar
-    pausa:
+    pausa proc
         mov AH, 07h                                 ;funcion 7, obtener caracter de pantalla, sin imprimir en pantalla(echo)
         int 21h                                     ;se llama a la interrupcion
-    ret
+        ret
+    endp
 
     ;Limpia la pantalla, modo texto
     limpPant:
@@ -89,16 +125,20 @@ code segment
         call pausa
         cmp AL,31h                                  ;compara si es la opción uno 
         je  leerArchivo                             ;salta al menú Leer Archivo
+        cmp AL,35h                                  ;compara si es la opción cinco
+        je  salirApp                                ;si es la opción 5 salta a la salida de la aplicación
+        jmp menuPrin                                ;Si no es ninguna opcion, se mantiene en el menu
 
-    ;muestra en la opción Leer Archivo
+    ;muestra en pantalla la opción Leer Archivo
     leerArchivo:
         call limpPant
         imprimir strEncLeerArchivo
+        imprimir saltoLin
         call obtDirArch
         jmp validarDireccion
         sinErLeerArch:
-        call limpPant
-        jmp cargarArchivo
+            call limpPant
+            jmp cargarArchivo
 
     ;Obtiene la dirección del archivo ingresada por el usuario
     obtDirArch proc        
@@ -120,7 +160,9 @@ code segment
         salirLeerDireccion:
         dec SI                                      ;Resta uno a SI
         mov pathArchivo[SI],0                       ;quita el salto de linea del buffer y deja un null (0) 
-    ret
+        ret
+    endp
+
     ;valida que la dirección del archivo tiene
     ;el formato correcto
     validarDireccion: 
@@ -146,6 +188,7 @@ code segment
         mov pathArchivoRep[SI-2],65h
         mov pathArchivoRep[SI-3],72h
         jmp sinErLeerArch
+
     ;muestra el mensaje de error en la dirección
     errorDir:
         call limpPant
@@ -157,36 +200,38 @@ code segment
     ;de error en caso contrario
     cargarArchivo:
         mov AL, 00h                                 ;modo de acceso para abrir archivo, modo lectura/escritura
-        mov DX, offset archivo                      ;offset lugar de memoria donde esta la variable
+        lea DX, pathArchivo                         ;offset lugar de memoria donde esta la variable
         mov AH, 3Dh                                 ;se intenta abrir el archivo
         int 21h                                     ;llamada a la interrupcion DOS
-        jc  error                                   ; si se prendio la bandera c ir a error
-        mov [handle], AX                            ;si no paso, mover a lo que le dio el SO
+        jc  error                                   ;si se prendio la bandera c ir a error
+        mov [handle], AX                            ;mover lo que le dio el SO
         
         mov BX,handle                               ;Asigna el handle (apuntador) del archivo a BX
         mov CX,1000                                 ;Lee 1000 caracteres del archivo de entrada 
         lea DX,datosArchivo                         ;Asigna el buffer, donde se guardaran los datos, a DX
         mov AH,3Fh                                  ;asigna la funcion leer archivo a AH
         int 21h                                     ;llama a la interrupcion
-        
+
         mov BX, handle                              ;cargar el Handler del archivo
         mov AH,3Eh                                  ;funcion para cerrar el archivo
         int 21h                                     ;llamada a la interrupcion
 
         mov finArchivo,0
         mov hayError,0
-        call validaArchivo
-        cmp hayError,0
-        ja  menuPrin
-        jmp menuOpe
-        error:
-            imprimir erAbrArch                      ;Muestra el mensaje de error al cargar el archivo  
-            call pausa
-            jmp menuPrin
+        call validaArchivo                          ;Valida lexicamente el archivo
+        cmp hayError,0                              ;compara la variable hayerror con 0
+        ja  menuPrin                                ;si hay un error o más regresa al menú
+        jmp menuOpe                                 ;si no salta a error, muestra el menu de operaciones
+
+    ;Error al Abrir el archivo
+    error:
+        imprimir erAbrArch                          ;Muestra el mensaje de error al cargar el archivo  
+        call pausa
+        jmp menuPrin
 
     ;Valida el Archivo, que no tenga errores
     validaArchivo proc
-        mov SI,00h                                  ;inicia el indice SI en 0    
+        xor SI,SI                                   ;inicia el indice SI en 0    
         loopValidar:
             
             cmp datosArchivo[SI],20h                ;compara si es un espacio
@@ -200,33 +245,108 @@ code segment
             
             cmp datosArchivo[SI],0Ah                ;compara si es Nueva linea
             je  incSILoopValidar                    ;si es nueva linea continua con el loop
+
+            cmp datosArchivo[SI],2Bh                ;compara si es + 
+            je incSILoopValidar                     ;si es + sigue con la siguiente iteracion
+
+            cmp datosArchivo[SI],2Dh                ;compara si es -
+            je incSILoopValidar                     ;si es - sigue con la siguiente iteracion
+
+            cmp datosArchivo[SI],2Fh                ;compara si es /
+            je incSILoopValidar                     ;si es / sigue con la siguiente iteracion
+
+            cmp datosArchivo[SI],2Ah                ;compara si es *
+            je incSILoopValidar                     ;si es * sigue con la siguiente iteracion
             
             cmp datosArchivo[SI],00h                ;Salta si es NULL, sale y valida el fin de archivo
             je  salirValidar
             
             cmp finArchivo,00h                      ;Si no es fin de archivo y está levantada la bandera
             ja  errorFinArchivo                     ;salta a error que no finalizo el archivo despues de ;
-            
-            cmp datosArchivo[SI],2Bh                ;Salta si es + a validar los numeros
-            je incSILoopValidar
                 
             cmp datosArchivo[SI],3Bh                ;Salta si es punto y coma, y levanta la bandera
             je validarFinArchivo    
             
-            call errorCaracter                      ;Cualquier otra opción es un error
+            cmp datosArchivo[SI],30h                ;Compara con 0
+            jb  errorCaracter                       ;Si es menor de 0 es un caracter invalido
+
+            cmp datosArchivo[SI],39h                ;compara con 9
+            ja  errorCaracter                       ;Si es mayor de 9 es un caracter invalido
             
             incSILoopValidar:
                 inc SI
         loop loopValidar
         salirValidar:
-        call errorNoFinArch 
-        call pausa
+            call errorNoFinArch 
+            call pausa
         ret
     endp
+
     ;Levanta la bandera de fin de archivo
     validarFinArchivo:
         inc finArchivo
         jmp incSILoopValidar
+
+    ;error de Caracter invalido
+    errorCaracter:
+        imprimir erCarInv
+        imprimirChar datosArchivo[SI]
+        imprimir saltoLin
+        inc hayError
+        jmp incSILoopValidar
+    ;Error no termino el archivo despues de ;
+    errorFinArchivo:     
+        imprimir erFinArch
+        imprimirChar datosArchivo[SI]
+        imprimir saltoLin
+        inc hayError
+        jmp incSILoopValidar
+    ;Procedimineto Error No existe el fin de archivo
+    errorNoFinArch proc
+        cmp finArchivo,00h
+        jne salirErNoFin
+        imprimir erNoFinArch
+        imprimir saltoLin
+        inc hayError
+        salirErNoFin:
+            imprimir stringArchAna
+    ret 
+
+    ;Menu de operaciones
+    menuOpe:
+        call calcularResultado
+        mosMenuOpe:    
+            call limpPant                               
+            imprimir stringMenOp
+            call pausa                               
+            cmp AL,31h                              ;compara si es la tecla 1
+            je  imprimirRes                         ;si es la tecla 1, muestra el Resultado de las operaciones
+            ;cmp AL,32h                              ;compara si es la tecla 2
+            ;je  imprimirImpar                       ;si es la tecla 2, muestra los numeros Impares
+            ;cmp AL,33h                              ;compara si es la tecla 3
+            ;je  imprimirEspejo                      ;si es la tecla 3, muestra los numeros Espejo
+            cmp AL,34h                              ;compara si es la tecla 4
+            je  menuPrin                            ;si es la tecla 4, regresa al menu principal
+            jmp mosMenuOpe                          ;Si no es ninguna opcion, se mantiene en el menu de operaciones    
+
+    calcularResultado proc
+            xor SI,SI
+            loopCalcularRes:
+                cmp datosArchivo[SI],00h            ;Compara sí es nulo el caracter Analizado
+                je  salirCalcRes                    ;Si es nulo, es el fin de los datos y sale del loop
+                cmp datosArchivo[SI],3Bh            ;compara si es punto y coma
+                je  salirLeerDireccion              ;si es punto y coma, sale del loop
+                cmp datosArchivo[SI],29h            ;compara si es 0 u otro digito en ASCII
+                ja  concatNum                       ;si es mayor un digito salta a concatenar
+                incSILoopCalcRes:
+                    inc SI
+            loop loopCalcularRes
+            salirCalcRes:
+                nop
+        ret
+    endp
+    ;concatenar los digitos de un Número
+    
 ;Etiqueta Principal 
 start:
     ; set segment registers:
@@ -235,17 +355,17 @@ start:
     mov es, ax
 
     jmp menuPrin
-            
-    lea dx, pkey
-    mov ah, 9
-    int 21h        ; output string at ds:dx
-    
-    ; wait for any key....    
-    mov ah, 1
-    int 21h
-    
-    mov ax, 4c00h ; exit to operating system.
-    int 21h    
+    salirApp:        
+        lea dx, pkey
+        mov ah, 9
+        int 21h        ; output string at ds:dx
+        
+        ; wait for any key....    
+        mov ah, 1
+        int 21h
+        
+        mov ax, 4c00h ; exit to operating system.
+        int 21h    
 ends
 
 end start ; set entry point and stop the assembler.

@@ -55,6 +55,12 @@ data segment
     erNoFinArch         db "Se esperaba fin de archivo ;","$"
 
     ;+++++++++++++++++++++++++++++++++++++++++++++ Variables ++++++++++++++++++++++++++++++++++++++++++++++++++
+    ;------- Variables Indice --------
+    ;Indice Actual lista OPERACIONES
+    iListOpe            dw 0
+    ;Indice digito Actual del Numero concatenado
+    iDigNum             dw 0
+
     ;Direccion del archivo
     pathArchivo         db 50 dup(0)
     ;Dirección del archivo de reporte
@@ -63,7 +69,8 @@ data segment
     datosArchivo        db 1000 dup(0)
     ;identificador del arhivo de entrada
     handle              dw ?
-
+    ;Lista de operaciones
+    listOpera           db 300 dup('$')
     ;-------- Variables bandera ----------
     ;hubo error
     hayError            db 0
@@ -80,10 +87,18 @@ code segment
     ;++++++++++++++++++++++++++++++++++++++++++ Macros ++++++++++++++++++++++++++++++++++++++++++++++++
     ;imprime un caracter en pantalla
     imprimirChar macro char
-         mov DL, char                               ;valor del parametro char a DL
+         mov DL, offset char                        ;valor del parametro char a DL
          mov AH, 02h                                ;funcion 2, imprimir byte en pantalla
          int 21h                                    ;se llama a la interrupcion
     endm
+
+    ;Posición en memoria de la casilla matriz[i][j]
+    ;la respuesta queda en BX
+    localizar proc
+        mul DX
+        add BX,AX
+        ret
+    endp
 
     ;Macro para imprimir una cadena, recibe un parametro
     imprimir macro str
@@ -332,12 +347,23 @@ code segment
     calcularResultado proc
             xor SI,SI
             loopCalcularRes:
-                cmp datosArchivo[SI],00h            ;Compara sí es nulo el caracter Analizado
+                cmp datosArchivo[SI],20h            ;compara si es un espacio
+                je  incSILoopCalcRes                ;si es espacio sigue con la siguiente iteracion
+
+                cmp datosArchivo[SI],09h            ;compara si es una tabulacion
+                je  incSILoopCalcRes                ;si es tabulacion sigue con la siguiente iteracion
+
+                cmp datosArchivo[SI],00h            ;Compara si es nulo el caracter Analizado
                 je  salirCalcRes                    ;Si es nulo, es el fin de los datos y sale del loop
+
+                cmp datosArchivo[SI],30h            ;Compara si es 0 en codigo ASCII
+                jb  agregaListOpe                   ;lo agrega a la lista de operaciones 
+
                 cmp datosArchivo[SI],3Bh            ;compara si es punto y coma
-                je  salirLeerDireccion              ;si es punto y coma, sale del loop
+                je  salirCalcRes                    ;si es punto y coma, sale del loop
+
                 cmp datosArchivo[SI],29h            ;compara si es 0 u otro digito en ASCII
-                ja  concatNum                       ;si es mayor un digito salta a concatenar
+                ja  concatNum                       ;si es un digito salta a concatenar
                 incSILoopCalcRes:
                     inc SI
             loop loopCalcularRes
@@ -345,8 +371,54 @@ code segment
                 nop
         ret
     endp
+    ;Agregar a la Lista de operaciones el simbolo de operacion
+    agregaListOpe:
+        mov AX,iListOpe                         ;Asignar la fila de la casilla a buscar en la matriz
+        mov BX,00h                              ;Asignar la columna de casilla a buscar en la matriz
+        mov DX,0006h                            ;Asignar el tamaño de las filas de la matriz                             
+        call localizar                          ;Devuelve en BX la casilla buscada
+        mov AL,datosArchivo[SI]
+        mov listOpera[BX],AL
+        inc iListOpe
+        jmp incSILoopCalcRes
     ;concatenar los digitos de un Número
-    
+    concatNum:
+        mov iDigNum,00h
+        loopConcatNum:
+            push SI                                 ;Guarda en la Pila la posición del caracter que se está leyendo
+            mov AX,iListOpe                         ;Asignar la fila de la casilla a buscar en la matriz
+            mov BX,iDigNum                          ;Asignar la columna de casilla a buscar en la matriz
+            mov DX,0006h                            ;Asignar el tamaño de las filas de la matriz                             
+            call localizar                          ;Devuelve en BX la casilla buscada
+            mov AL,datosArchivo[SI]                 ;Guarda el caracter leido en el registro AL
+            mov listOpera[BX],AL                    ;Guarda en la posición vacia del vector, el caracter leído
+            inc iDigNum                             ;mueve el indice a la siguiente posición del vector
+            pop SI                                  ;Devuelve el valor inicialde SI, posición del caracter leído
+            inc SI                                  ;mueve al siguiente caracter leído
+            cmp datosArchivo[SI],30h                ;compara si el caracter es 0 en ASCII
+            jb  salirConcatNum                      ;Sale del ciclo si no es un numero
+            cmp datosArchivo[SI],39h                ;compara si el caracter es 9 en ASCII
+            ja  salirConcatNum                      ;Sale del ciclo si no es un numero
+        loop loopConcatNum
+        salirConcatNum:
+            inc iListOpe
+        jmp loopCalcularRes
+    ;imprime la respuesta del archivo de entrada
+    imprimirRes:
+        xor DI,DI
+        mov CX,06h
+        mov AX,00h                                  ;Asignar la fila de la casilla a buscar en la matriz
+        loopAux:
+            mov AX,00h
+            mov BX,DI                               ;Asignar la columna de casilla a buscar en la matriz
+            mov DX,0006h                            ;Asignar el tamaño de las filas de la matriz                             
+            call localizar                          ;Devuelve en BX la casilla buscada
+            imprimir listOpera[BX]
+            add DI,06h
+        loop loopAux
+        imprimir saltoLin
+        jmp mosMenuOpe
+
 ;Etiqueta Principal 
 start:
     ; set segment registers:

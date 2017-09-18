@@ -69,6 +69,14 @@ data segment
     prioTopPila         db 0
     ;Variable prioridad caracter leido
     prioTopCar          db 0
+    ;Variable Operardor 1
+    Opera1              dw 0
+    ;variable Operardor 2
+    Opera2              dw 0
+    ;variable Resultado
+    Resultado           dw 0
+    ;variable operador
+    Operador            db 0
     ;Direccion del archivo
     pathArchivo         db 50 dup(0)
     ;Dirección del archivo de reporte
@@ -77,6 +85,8 @@ data segment
     datosArchivo        db 1000 dup(0)
     ;identificador del arhivo de entrada
     handle              dw ?
+    ;Lista de ponderaciones para pasar string a int
+    listaPond           dw 0x0001,0x000A,0x0064,0x03E8,0x2710
     ;Lista de operaciones
     listOpera           db 300 dup(0)
     ;Arreglo Postfijo
@@ -129,8 +139,21 @@ code segment
         ret
     endp
 
+
+    ;limpia la variable numero Auxiliar
+    limpNumAux proc
+        mov CX,06h
+        mov iAux,00h
+        loopLimpNumAux:
+            mov SI,iAux
+            mov NumAux[SI],24h
+            inc iAux
+        loop loopLimpNumAux
+        ret
+    endp
+
     ;Limpia la pantalla, modo texto
-    limpPant:
+    limpPant proc
         mov AH, 00h
         mov AL, 3h                                  ;modo texto
         int 10h                                     ;interrupcion
@@ -142,7 +165,8 @@ code segment
         mov CX,0000h                                ;es la esquina superior izquierda reglon: columna
         mov DX,184Fh                                ;es la esquina inferior derecha reglon: columna
         int 10h                                     ;interrupcion
-    ret
+        ret
+    endp
 
     ;Muestra en pantalla el menú principal
     menuPrin:
@@ -345,6 +369,7 @@ code segment
     menuOpe:
         call agregarMatriz
         call inFPosF
+        call calcularResultado
         mosMenuOpe:    
             call limpPant                               
             imprimir stringMenOp
@@ -352,9 +377,9 @@ code segment
             cmp AL,31h                              ;compara si es la tecla 1
             je  imprimirRes                         ;si es la tecla 1, muestra el Resultado de las operaciones
             ;cmp AL,32h                              ;compara si es la tecla 2
-            ;je  imprimirImpar                       ;si es la tecla 2, muestra los numeros Impares
-            ;cmp AL,33h                              ;compara si es la tecla 3
-            ;je  imprimirEspejo                      ;si es la tecla 3, muestra los numeros Espejo
+            ;je  imprimirPreFija                     ;si es la tecla 2, muestra los numeros Impares
+            cmp AL,33h                              ;compara si es la tecla 3
+            je  imprimirPostFija                    ;si es la tecla 3, muestra la notación postfija
             cmp AL,34h                              ;compara si es la tecla 4
             je  menuPrin                            ;si es la tecla 4, regresa al menu principal
             jmp mosMenuOpe                          ;Si no es ninguna opcion, se mantiene en el menu de operaciones    
@@ -419,8 +444,20 @@ code segment
         salirConcatNum:
             inc iListOpe
         jmp loopAgreMatriz
+
     ;imprime la respuesta del archivo de entrada
     imprimirRes:
+        cmp resultado,064h
+        jb  decenas
+        
+        decenas:
+        cmp resultado,0Ah
+        jb  unidades
+        unidades:
+        call pausa
+        jmp mosMenuOpe
+
+    ;imprimir la notación Postfija
         imprimir postFijo[0]
         imprimir saltoLin
         call pausa
@@ -442,12 +479,11 @@ code segment
             je salirInFPosF                         ;si es el final se sale del loop         
             cmp listOpera[SI],30h                   ;Compara si el caracter es 0 en ASCII
             jb  pushPilaOpe                         ;si es menor es un operador, va a la pila
-            ja  pushPost                            ;si es mayor es un operando, va al vector postfijo
+            jmp  pushPost                           ;si es mayor es un operando, va al vector postfijo
             incSILoopInFPosF:
                 inc iListOpe
         loop loopInFPosF
         salirInFPosF:
-            call pausa
             cmp topPila,00h
             ja  vaciarPila
         ret
@@ -554,50 +590,120 @@ code segment
     ;la notación postfija
     calcularResultado proc
         mov iPosFijo,00h
+        mov topPila,00h
         loopCalcRes:
-            
+            mov AX,iPosFijo
+            mov BX,00h
+            mov DX,06h
+            call localizar
+            cmp postFijo[BX],24h
+            je  salirCalcRes
+            cmp postFijo[BX],30h
+            jb  hacerOperacion
+            call concatNumAux
+            call aEntero
+            push BX
+            inc topPila
+            incILoopCalcRes:
+                inc iPosFijo
         loop loopCalcRes
+        salirCalcRes:
+            pop resultado
+            
         ret
     endp
+
+    ;Realiza la operacion
+    ;basado en el operador leído
+    ;sacando los dos ultimos operandos
+    ;almacenados en la pila
+    hacerOperacion:
+        cmp topPila,02h
+        jb  salirCalcRes
+        pop Opera2
+        dec topPila
+        pop Opera1
+        dec topPila
+        mov DL,postFijo[BX]
+        mov operador,DL
+        call operar
+        push AX
+        inc topPila
+        jmp incILoopCalcRes
+
+    operar proc
+        cmp operador,2Bh                            ;+
+        je  hacerSuma
+        cmp operador,2Dh                            ;-
+        je  hacerResta
+        cmp operador,2Ah                            ;*
+        je  hacerMulti
+        cmp operador,2Fh                            ;/
+        je  hacerDivi
+        salirOperar:
+            mov resultado,AX
+        ret
+    endp
+
+    hacerSuma:
+        mov AX,Opera1
+        add AX,Opera2
+        jmp salirOperar
+
+    hacerResta:
+        mov AX,Opera1
+        sub AX,Opera2
+        jmp salirOperar
+
+    hacerMulti:
+        mov AX,Opera1
+        imul Opera2
+        jmp salirOperar
+
+    hacerDivi:
+        xor DX,DX
+        mov AX,Opera1
+        idiv Opera2
+        jmp salirOperar
 
     ;concatenar un numero en la
     ;Variable Numero Auxiliar
     concatNumAux proc
+        call limpNumAux
+        mov SI,BX
+        mov iAux,00h
         mov CX,06h
-        mov 
         loopConNumAux:
             mov AL,postFijo[SI]
             cmp AL,00h
             je  salirConNumAux
-            mov NumAux[SI],AL
+            mov DI,iAux
+            mov NumAux[DI],AL
             inc SI
-            cmp AL,24h
-            je  salirConNumAux
+            inc iAux
         loop loopConNumAux
         salirConNumAux:
-            mov NumAux[SI],00h
+            nop
         ret
     endp
+
     ;Procedimineto para pasar a Entero un String
     aEntero proc
-        push SI 
+        mov CX,iAux
+        mov DI,iAux
+        dec DI
         mov SI,00h 
         mov BX,00h
         loopEntero:  
             mov AH,00h
-            mov AL,numTemp[DI]
+            mov AL,NumAux[DI]
             sub AL,30h 
-            mul listaAux[SI]
+            mul listaPond[SI]
             add BX,AX
             inc SI
             inc SI
             dec DI
         loop loopEntero 
-        mov SI,iNum
-        mov listaNum[SI],BX
-        inc iNum
-        inc iNum
-        pop SI
         ret
     endp
 ;Etiqueta Principal 

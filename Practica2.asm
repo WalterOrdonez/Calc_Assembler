@@ -60,7 +60,15 @@ data segment
     iListOpe            dw 0
     ;Indice digito Actual del Numero concatenado
     iDigNum             dw 0
+    ;Indice del vector postFijo
+    iPosFijo            dw 0
+    ;Indice Auxiliar
+    iAux                dw 0
 
+    ;Variable prioridad top Pila
+    prioTopPila         db 0
+    ;Variable prioridad caracter leido
+    prioTopCar          db 0
     ;Direccion del archivo
     pathArchivo         db 50 dup(0)
     ;Dirección del archivo de reporte
@@ -70,7 +78,13 @@ data segment
     ;identificador del arhivo de entrada
     handle              dw ?
     ;Lista de operaciones
-    listOpera           db 300 dup('$')
+    listOpera           db 300 dup(0)
+    ;Arreglo Postfijo
+    postFijo            db 300 dup('$')
+    ;Var Tope de Pila
+    topPila             db 0
+    ;Numero Auxiliar
+    NumAux              db 6 dup('$')
     ;-------- Variables bandera ----------
     ;hubo error
     hayError            db 0
@@ -92,6 +106,13 @@ code segment
          int 21h                                    ;se llama a la interrupcion
     endm
 
+    ;Macro para imprimir una cadena, recibe un parametro
+    imprimir macro str
+        mov AH,09h                                  ;funcion para imprimir en pantalla
+        mov DX,offset str   
+        int 21H
+    endm
+    
     ;Posición en memoria de la casilla matriz[i][j]
     ;la respuesta queda en BX
     localizar proc
@@ -99,13 +120,6 @@ code segment
         add BX,AX
         ret
     endp
-
-    ;Macro para imprimir una cadena, recibe un parametro
-    imprimir macro str
-        mov AH,09h                                  ;funcion para imprimir en pantalla
-        mov DX,offset str
-        int 21H
-    endm
 
     ;Hace una pausa en la ejecución del código,
     ;espera una pulsación de tecla para continuar
@@ -329,7 +343,8 @@ code segment
 
     ;Menu de operaciones
     menuOpe:
-        call calcularResultado
+        call agregarMatriz
+        call inFPosF
         mosMenuOpe:    
             call limpPant                               
             imprimir stringMenOp
@@ -344,43 +359,44 @@ code segment
             je  menuPrin                            ;si es la tecla 4, regresa al menu principal
             jmp mosMenuOpe                          ;Si no es ninguna opcion, se mantiene en el menu de operaciones    
 
-    calcularResultado proc
-            xor SI,SI
-            loopCalcularRes:
-                cmp datosArchivo[SI],20h            ;compara si es un espacio
-                je  incSILoopCalcRes                ;si es espacio sigue con la siguiente iteracion
+    agregarMatriz proc
+        xor SI,SI
+        loopAgreMatriz:
+            cmp datosArchivo[SI],20h                ;compara si es un espacio
+            je  incSILoopAgrMat                     ;si es espacio sigue con la siguiente iteracion
 
-                cmp datosArchivo[SI],09h            ;compara si es una tabulacion
-                je  incSILoopCalcRes                ;si es tabulacion sigue con la siguiente iteracion
+            cmp datosArchivo[SI],09h                ;compara si es una tabulacion
+            je  incSILoopAgrMat                     ;si es tabulacion sigue con la siguiente iteracion
 
-                cmp datosArchivo[SI],00h            ;Compara si es nulo el caracter Analizado
-                je  salirCalcRes                    ;Si es nulo, es el fin de los datos y sale del loop
+            cmp datosArchivo[SI],00h                ;Compara si es nulo el caracter Analizado
+            je  salirAgreMatriz                     ;Si es nulo, es el fin de los datos y sale del loop
 
-                cmp datosArchivo[SI],30h            ;Compara si es 0 en codigo ASCII
-                jb  agregaListOpe                   ;lo agrega a la lista de operaciones 
+            cmp datosArchivo[SI],30h                ;Compara si es 0 en codigo ASCII
+            jb  agregaListOpe                       ;lo agrega a la lista de operaciones 
 
-                cmp datosArchivo[SI],3Bh            ;compara si es punto y coma
-                je  salirCalcRes                    ;si es punto y coma, sale del loop
+            cmp datosArchivo[SI],3Bh                ;compara si es punto y coma
+            je  salirAgreMatriz                     ;si es punto y coma, sale del loop
 
-                cmp datosArchivo[SI],29h            ;compara si es 0 u otro digito en ASCII
-                ja  concatNum                       ;si es un digito salta a concatenar
-                incSILoopCalcRes:
-                    inc SI
-            loop loopCalcularRes
-            salirCalcRes:
-                nop
+            cmp datosArchivo[SI],29h                ;compara si es 0 u otro digito en ASCII
+            ja  concatNum                           ;si es un digito salta a concatenar
+            incSILoopAgrMat:
+                inc SI
+        loop loopAgreMatriz
+        salirAgreMatriz:
+            nop
         ret
     endp
+
     ;Agregar a la Lista de operaciones el simbolo de operacion
     agregaListOpe:
-        mov AX,iListOpe                         ;Asignar la fila de la casilla a buscar en la matriz
-        mov BX,00h                              ;Asignar la columna de casilla a buscar en la matriz
-        mov DX,0006h                            ;Asignar el tamaño de las filas de la matriz                             
-        call localizar                          ;Devuelve en BX la casilla buscada
+        mov AX,iListOpe                             ;Asignar la fila de la casilla a buscar en la matriz
+        mov BX,00h                                  ;Asignar la columna de casilla a buscar en la matriz
+        mov DX,0006h                                ;Asignar el tamaño de las filas de la matriz                             
+        call localizar                              ;Devuelve en BX la casilla buscada
         mov AL,datosArchivo[SI]
         mov listOpera[BX],AL
         inc iListOpe
-        jmp incSILoopCalcRes
+        jmp incSILoopAgrMat
     ;concatenar los digitos de un Número
     concatNum:
         mov iDigNum,00h
@@ -402,23 +418,188 @@ code segment
         loop loopConcatNum
         salirConcatNum:
             inc iListOpe
-        jmp loopCalcularRes
+        jmp loopAgreMatriz
     ;imprime la respuesta del archivo de entrada
     imprimirRes:
-        xor DI,DI
-        mov CX,06h
-        mov AX,00h                                  ;Asignar la fila de la casilla a buscar en la matriz
-        loopAux:
-            mov AX,00h
-            mov BX,DI                               ;Asignar la columna de casilla a buscar en la matriz
-            mov DX,0006h                            ;Asignar el tamaño de las filas de la matriz                             
-            call localizar                          ;Devuelve en BX la casilla buscada
-            imprimir listOpera[BX]
-            add DI,06h
-        loop loopAux
+        imprimir postFijo[0]
         imprimir saltoLin
+        call pausa
         jmp mosMenuOpe
 
+    ;convierte de notación infija a postfija
+    ;creando un vector con la notación postfija
+    inFPosF proc
+        xor SI,SI
+        mov iListOpe,00h
+        mov topPila,00h                             ;Inicia el Tope de la pila en 0
+        loopInFPosF:
+            mov AX,iListOpe
+            mov BX,00h
+            mov DX,06h
+            call localizar
+            mov SI,BX
+            cmp listOpera[SI],00h                   ;compara si se llegó al final del vector
+            je salirInFPosF                         ;si es el final se sale del loop         
+            cmp listOpera[SI],30h                   ;Compara si el caracter es 0 en ASCII
+            jb  pushPilaOpe                         ;si es menor es un operador, va a la pila
+            ja  pushPost                            ;si es mayor es un operando, va al vector postfijo
+            incSILoopInFPosF:
+                inc iListOpe
+        loop loopInFPosF
+        salirInFPosF:
+            call pausa
+            cmp topPila,00h
+            ja  vaciarPila
+        ret
+    endp
+
+    ;mete a la pila el valor
+    pushPilaOpe:
+        mov prioTopCar,00h                          ;inicia la variable de prioridad del Caracter leído en 0
+        mov prioTopPila,00h                         ;inicia la variable de prioridad del top de la pila en 0
+        cmp topPila,00h                             ;compara si el contador de la pila es 0 
+        je  metePila                                ;si es 0 (está vacia), hace un push del caracter leído en la pila
+        pop AX                                      ;saca el caracter de la cima de la pila
+        cmp AL,listOpera[SI]                        ;compara si la cima de la pila es igual que el caracter leído
+        je  meterPosFijo                            ;si son iguales, mete la cima de la pila en el vector posfijo
+        ;calcula la prioridad del
+        ;operando en la cima de
+        ;la pila
+        cmp AL,2Bh                                  ;compara si la cima de la pila es el signo +
+        je  prioCar                                 ;si es el signo +, salta a calcular la prioridad del caracter leído
+        inc prioTopPila                             ;si no es el signo +, aumenta la variable prioridad de la cima de la pila
+        cmp AL,2Dh                                  ;compara si la cima de la pila es el signo -
+        je  prioCar                                 ;si es el signo -, salta a calcular la prioridad del caracter leído
+        inc prioTopPila                             ;si no es el signo -, aumenta la variable prioridad de la cima de la pila
+        cmp AL,2Ah                                  ;compara si la cima de la pila es el signo *
+        je  prioCar                                 ;si es el signo *, salta a calcular la prioridad del caracter leído
+        inc prioTopPila                             ;si no es el signo *, aumenta la variable prioridad de la cima de la pila
+        ;calcula la prioridad del
+        ;operando leido 
+        prioCar:
+            cmp listOpera[SI],2Bh                   ;compara si el operando leído es el signo +                  
+            je  ComparaPrioridades                  ;si es el signo +, salta a comparar prioridades
+            inc prioTopCar                          ;si no es el signo +, aumenta la variable prioridad del operando leido
+            cmp listOpera[SI],2Dh                   ;compara si el operando leído es el signo -
+            je  ComparaPrioridades                  ;si es el signo -, salta a comparar prioridades
+            inc prioTopCar                          ;si no es el signo -, aumenta la variable prioridad del operando leido
+            cmp listOpera[SI],2Ah                   ;compara si el operando leído es el signo *
+            je  ComparaPrioridades                  ;si es el signo *, salta a comparar prioridades
+            inc prioTopCar                          ;si no es el signo *, aumenta la variable prioridad del operando leido
+        ComparaPrioridades:
+            mov DL,prioTopPila
+            cmp prioTopCar,DL                       ;compara las prioridades de los dos operandos, leído y de pila
+            ja  meteAmbos                           ;si la prioridad del leído es mayor que el de la pila, mete ambos
+        meterPosFijo:
+            mov DI,iPosFijo                         ;Inicia DI con el indice del vector postFijo
+            mov postFijo[DI],AL                     ;mete la cima de la pila en el vector postFijo
+            inc iPosFijo                            ;incrementa el indice del vector
+            ;llena el resto de espacios
+            ;de la Casilla con 0      
+            mov CX,05h  
+            loopMeterPosFijo:
+                mov DI,iPosFijo
+                mov postFijo[DI],00h
+                inc iPosFijo
+            loop loopMeterPosFijo
+            dec topPila                             ;decrementa el contador de la pila 
+            jmp pushPilaOpe                         ;regresa a comparar el resto de la pila con el operador leído
+        meteAmbos:
+            mov AH,00h
+            push AX                                 ;mete nuevamente la cima de la pila a la pila
+        metePila:
+            mov DH,00h
+            mov DL,listOpera[SI]
+            push DX                                 ;mete a pila el operando leído
+            inc topPila                             ;incrementa el top de la pila
+        jmp incSILoopInFPosF                        ;regresa a leer el resto de la cadena
+
+    ;mete en el vector postFijo
+    ;todo el operando leído
+    pushPost:
+        xor DI,DI                                   ;inicia DI en 0
+        mov CX,06h                                  ;fija en 6 la cantidad de veces que se ejecuta el ciclo
+        loopPushPos:
+            mov DI,iPosFijo                         ;inicia DI con el valor del indice del vector postfija
+            mov AL,listOpera[SI]                    ;guarda en AL el operando Leído
+            mov postFijo[DI],AL                     ;guarda en el vector el contenido de AL
+            inc SI                                  ;incrementa SI, para leer el siguiente operador
+            inc iPosFijo                            ;incrementa el indice del vector postFijo
+        loop loopPushPos
+        jmp incSILoopInFPosF                        ;regresa a leer el siguiente operador
+
+    ;vacia la pila, metiendo su contenido
+    ;en el vector
+    vaciarPila:
+        loopVaciarPila:
+            cmp topPila,00h                         ;compara si el top de la pila es 0
+            je  salirInFPosF                        ;si es 0, la pila ya está vacía y sale
+            pop AX                                  ;saca de la pila y lo guarda en AX
+            mov DI,iPosFijo                         ;Inicia DI con el indice del vector postFijo
+            mov postFijo[DI],AL                     ;mete la cima de la pila en el vector postFijo
+            inc iPosFijo                            ;incrementa el indice del vector postFijo
+            mov CX,05h                              ;inicia el contador del loop en 5
+            ;llena las otras posiciones
+            ;con 0 o nulo
+            loopVaciarPushPost:
+                mov DI,iPosFijo                     ;Indice del vector postfijo en DI
+                mov postFijo[DI],00h                ;guarda en la posicion DI, 0 o nulo
+                inc iPosFijo                        ;incrmenta el indice del vector
+            loop loopVaciarPushPost
+            dec topPila                             ;decrementa el top de la pila
+        loop loopVaciarPila
+
+
+    ;calcula el resultado basado en
+    ;la notación postfija
+    calcularResultado proc
+        mov iPosFijo,00h
+        loopCalcRes:
+            
+        loop loopCalcRes
+        ret
+    endp
+
+    ;concatenar un numero en la
+    ;Variable Numero Auxiliar
+    concatNumAux proc
+        mov CX,06h
+        mov 
+        loopConNumAux:
+            mov AL,postFijo[SI]
+            cmp AL,00h
+            je  salirConNumAux
+            mov NumAux[SI],AL
+            inc SI
+            cmp AL,24h
+            je  salirConNumAux
+        loop loopConNumAux
+        salirConNumAux:
+            mov NumAux[SI],00h
+        ret
+    endp
+    ;Procedimineto para pasar a Entero un String
+    aEntero proc
+        push SI 
+        mov SI,00h 
+        mov BX,00h
+        loopEntero:  
+            mov AH,00h
+            mov AL,numTemp[DI]
+            sub AL,30h 
+            mul listaAux[SI]
+            add BX,AX
+            inc SI
+            inc SI
+            dec DI
+        loop loopEntero 
+        mov SI,iNum
+        mov listaNum[SI],BX
+        inc iNum
+        inc iNum
+        pop SI
+        ret
+    endp
 ;Etiqueta Principal 
 start:
     ; set segment registers:

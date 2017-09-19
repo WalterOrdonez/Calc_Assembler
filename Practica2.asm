@@ -94,12 +94,14 @@ data segment
     ;Var Tope de Pila
     topPila             db 0
     ;Numero Auxiliar
-    NumAux              db 6 dup('$')
+    NumAux              db 7 dup('$')
     ;-------- Variables bandera ----------
     ;hubo error
     hayError            db 0
     ;ya se ingresó el fin de archivo
     finArchivo          db 0
+    ;Bandera signo
+    flagSig             db 0
 ends
 
 stack segment
@@ -142,7 +144,7 @@ code segment
 
     ;limpia la variable numero Auxiliar
     limpNumAux proc
-        mov CX,06h
+        mov CX,07h
         mov iAux,00h
         loopLimpNumAux:
             mov SI,iAux
@@ -447,17 +449,65 @@ code segment
 
     ;imprime la respuesta del archivo de entrada
     imprimirRes:
+        mov AX,resultado
+        xor SI,SI
+        xor DX,DX
+        cmp flagSig,00h
+        je  resPositivo
+        mov AL,2Dh
+        mov NumAux[SI],AL
+        inc SI
+        mov AX,resultado
+        neg AX
+        resPositivo:
+        cmp resultado,2710h
+        jb  uMiles
+        mov BX,2710h
+        idiv BX
+        add AX,30h
+        mov NumAux[SI],AL
+        inc SI
+        mov AX,DX
+        xor DX,DX
+        uMiles:
+        cmp resultado,3E8h
+        jb  centenas
+        mov BX,3E8h
+        idiv BX
+        add AX,30h
+        mov NumAux[SI],AL
+        inc SI
+        mov AX,DX
+        xor DX,DX
+        centenas:
         cmp resultado,064h
         jb  decenas
-        
+        mov BX,64h
+        idiv BX
+        add AX,30h
+        mov NumAux[SI],AL
+        inc SI
+        mov AX,DX
+        xor DX,DX
         decenas:
         cmp resultado,0Ah
         jb  unidades
+        mov BX,0Ah
+        idiv BX
+        add AX,30h
+        mov NumAux[SI],AL
+        inc SI
         unidades:
+        add DL,30h
+        mov NumAux[SI],DL
+        inc SI
+        mov NumAux[SI],24h
+        imprimir NumAux
         call pausa
         jmp mosMenuOpe
 
     ;imprimir la notación Postfija
+    imprimirPostFija:
         imprimir postFijo[0]
         imprimir saltoLin
         call pausa
@@ -648,24 +698,36 @@ code segment
     hacerSuma:
         mov AX,Opera1
         add AX,Opera2
+        mov flagSig,00h
+        js  esNegativo
         jmp salirOperar
 
     hacerResta:
         mov AX,Opera1
         sub AX,Opera2
+        mov flagSig,00h
+        js  esNegativo
         jmp salirOperar
 
     hacerMulti:
         mov AX,Opera1
         imul Opera2
+        mov flagSig,00h
+        js  esNegativo
         jmp salirOperar
 
     hacerDivi:
         xor DX,DX
         mov AX,Opera1
         idiv Opera2
+        mov flagSig,00h
+        js  esNegativo
         jmp salirOperar
 
+    esNegativo proc
+        mov flagSig,01h
+        ret
+    endp
     ;concatenar un numero en la
     ;Variable Numero Auxiliar
     concatNumAux proc

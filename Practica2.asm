@@ -37,6 +37,16 @@ data segment
                         db "2- Notaci",0A2h,"n Prefija",0Dh,0Ah
                         db "3- Notaci",0A2h,"n Posfija",0Dh,0Ah                 
                         db "4- Salir",0Dh,0Ah,"$"
+
+    ;++++++++++++++++++++++++++++++++++++++++ String Modo Calculadora +++++++++++++++++++++++++++++++++++++++++
+    strEncModCal        db "--------------------------------MODO CALCULADORA-------------------------------",0Dh,0Ah,"$";
+    strModCalcNum       db "Ingrese un n",0A3h,"mero: ","$"
+    strModCalcOpe       db "Ingrese el Operador: ","$"
+    strModCalcRes       db "Resultado: ","$"
+    strModCalcSal       db 0A8h,"Desea salir del modo Calculadora?",0Dh,0Ah
+                        db "1- S",0A1h,0Dh,0Ah
+                        db "2- No",0Dh,0Ah,"$"
+
     ;++++++++++++++++++++++++++++++++++++++++ Mensajes de Error +++++++++++++++++++++++++++++++++++++++++++++++
     ;mensaje de error, formato de la direccion invalido
     erForInvDir         db "El formato de la direccion no es correcta",0Dh,0Ah
@@ -64,7 +74,8 @@ data segment
     iPosFijo            dw 0
     ;Indice Auxiliar
     iAux                dw 0
-
+    ;numero negativos
+    numOpNeg            db 0
     ;Variable prioridad top Pila
     prioTopPila         db 0
     ;Variable prioridad caracter leido
@@ -180,9 +191,16 @@ code segment
         call pausa
         cmp AL,31h                                  ;compara si es la opción uno 
         je  leerArchivo                             ;salta al menú Leer Archivo
+        cmp AL,32h                                  ;compara si es la opción dos
+        je  modoCalc                                ;si es, salta al modo calculadora
         cmp AL,35h                                  ;compara si es la opción cinco
         je  salirApp                                ;si es la opción 5 salta a la salida de la aplicación
         jmp menuPrin                                ;Si no es ninguna opcion, se mantiene en el menu
+
+
+
+
+    ;[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[ Lectuara de Archivo ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
 
     ;muestra en pantalla la opción Leer Archivo
     leerArchivo:
@@ -369,6 +387,7 @@ code segment
 
     ;Menu de operaciones
     menuOpe:
+        mov numOpNeg,00h
         call agregarMatriz
         call inFPosF
         call calcularResultado
@@ -449,9 +468,15 @@ code segment
 
     ;imprime la respuesta del archivo de entrada
     imprimirRes:
+        call aString
+        imprimir NumAux
+        call pausa
+        jmp mosMenuOpe
+
+    aString proc
         mov AX,resultado
+        mov DX,resultado
         xor SI,SI
-        xor DX,DX
         cmp flagSig,00h
         je  resPositivo
         mov AL,2Dh
@@ -459,53 +484,53 @@ code segment
         inc SI
         mov AX,resultado
         neg AX
+        neg DX
         resPositivo:
-        cmp resultado,2710h
-        jb  uMiles
-        mov BX,2710h
-        idiv BX
-        add AX,30h
-        mov NumAux[SI],AL
-        inc SI
-        mov AX,DX
-        xor DX,DX
+            cmp resultado,2710h
+            jb  uMiles
+            xor DX,DX
+            mov BX,2710h
+            idiv BX
+            add AX,30h
+            mov NumAux[SI],AL
+            inc SI
+            mov AX,DX
         uMiles:
-        cmp resultado,3E8h
-        jb  centenas
-        mov BX,3E8h
-        idiv BX
-        add AX,30h
-        mov NumAux[SI],AL
-        inc SI
-        mov AX,DX
-        xor DX,DX
+            cmp resultado,3E8h
+            jb  centenas
+            xor DX,DX
+            mov BX,3E8h
+            idiv BX
+            add AX,30h
+            mov NumAux[SI],AL
+            inc SI
+            mov AX,DX
         centenas:
-        cmp resultado,064h
-        jb  decenas
-        mov BX,64h
-        idiv BX
-        add AX,30h
-        mov NumAux[SI],AL
-        inc SI
-        mov AX,DX
-        xor DX,DX
+            cmp resultado,064h
+            jb  decenas
+            xor DX,DX
+            mov BX,64h
+            idiv BX
+            add AX,30h
+            mov NumAux[SI],AL
+            inc SI
+            mov AX,DX
         decenas:
-        cmp resultado,0Ah
-        jb  unidades
-        mov BX,0Ah
-        idiv BX
-        add AX,30h
-        mov NumAux[SI],AL
-        inc SI
+            cmp resultado,0Ah
+            jb  unidades
+            xor DX,DX
+            mov BX,0Ah
+            idiv BX
+            add AX,30h
+            mov NumAux[SI],AL
+            inc SI
         unidades:
-        add DL,30h
-        mov NumAux[SI],DL
-        inc SI
-        mov NumAux[SI],24h
-        imprimir NumAux
-        call pausa
-        jmp mosMenuOpe
-
+            add DL,30h
+            mov NumAux[SI],DL
+            inc SI
+            mov NumAux[SI],24h
+        ret
+    endp
     ;imprimir la notación Postfija
     imprimirPostFija:
         imprimir postFijo[0]
@@ -699,29 +724,38 @@ code segment
         mov AX,Opera1
         add AX,Opera2
         mov flagSig,00h
-        js  esNegativo
+        jns salirOperar
+        call esNegativo
         jmp salirOperar
 
     hacerResta:
         mov AX,Opera1
         sub AX,Opera2
         mov flagSig,00h
-        js  esNegativo
+        jns salirOperar
+        call esNegativo
         jmp salirOperar
 
     hacerMulti:
         mov AX,Opera1
         imul Opera2
         mov flagSig,00h
-        js  esNegativo
+        jns salirOperar
+        call esNegativo
         jmp salirOperar
 
     hacerDivi:
         xor DX,DX
+        cmp numOpNeg,01h
+        jne diviPositiva
+        mov DX,0xFFFF
+        diviPositiva:
         mov AX,Opera1
         idiv Opera2
         mov flagSig,00h
-        js  esNegativo
+        cmp numOpNeg,01h
+        jne salirOperar
+        call esNegativo
         jmp salirOperar
 
     esNegativo proc
@@ -768,6 +802,70 @@ code segment
         loop loopEntero 
         ret
     endp
+
+    ;[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[ Modo Calculadora ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+    ;muestra el modo Calculadora
+    modoCalc:
+        mov numOpNeg,00h
+        xor SI,SI
+        mov iAux,00h
+        mov flagSig,00h
+        call limpPant
+        imprimir strEncModCal
+        call ingresoNum
+        mov Opera1,BX
+        xor SI,SI
+        mov iAux,00h
+        mov flagSig,00h
+        imprimir saltoLin
+        imprimir strModCalcOpe
+        mov AX,0000h                                ;limpia el registro AX
+        mov AH,01h                                  ;Asigna la funcion para leer un caracter de teclado
+        int 21h                                     ;llama a la interrupcion
+        mov operador,AL                             ;Guarda el operador Leído
+        imprimir saltoLin
+        call ingresoNum
+        mov Opera2,BX
+        imprimir saltoLin
+        call operar
+        call aString
+        imprimir strModCalcRes
+        imprimir NumAux
+        imprimir saltoLin
+        imprimir strModCalcSal
+        call pausa
+        cmp AL,32h
+        je  modoCalc
+    jmp menuPrin
+
+ingresoNum proc
+    imprimir strModCalcNum
+    loopLeerNum:
+        mov SI,iAux
+        mov AX,0000h                                ;limpia el registro AX
+        mov AH,01h                                  ;Asigna la funcion para leer un caracter de teclado
+        int 21h                                     ;llama a la interrupcion
+        cmp AL,0Dh
+        je  salirLeerNum
+        cmp Al,2Dh
+        jne mCNumPos
+        call esNegativo
+        inc numOpNeg
+        jmp loopLeerNum
+        mCNumPos:
+        mov NumAux[SI],AL
+        inc iAux
+    loop loopLeerNum
+    salirLeerNum:
+    mov NumAux[SI],00h
+    call aEntero
+    cmp flagSig,00h
+    je  numPositivo
+    neg BX
+    numPositivo:
+        nop
+    ret
+endp
 ;Etiqueta Principal 
 start:
     ; set segment registers:

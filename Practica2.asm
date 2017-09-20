@@ -39,13 +39,18 @@ data segment
                         db "4- Salir",0Dh,0Ah,"$"
 
     ;++++++++++++++++++++++++++++++++++++++++ String Modo Calculadora +++++++++++++++++++++++++++++++++++++++++
-    strEncModCal        db "--------------------------------MODO CALCULADORA-------------------------------",0Dh,0Ah,"$";
+    strEncModCal        db "--------------------------------MODO CALCULADORA-------------------------------",0Dh,0Ah,"$"
     strModCalcNum       db "Ingrese un n",0A3h,"mero: ","$"
     strModCalcOpe       db "Ingrese el Operador: ","$"
     strModCalcRes       db "Resultado: ","$"
     strModCalcSal       db 0A8h,"Desea salir del modo Calculadora?",0Dh,0Ah
                         db "1- S",0A1h,0Dh,0Ah
                         db "2- No",0Dh,0Ah,"$"
+
+    ;++++++++++++++++++++++++++++++++++++++++ String Modo Calculadora +++++++++++++++++++++++++++++++++++++++++
+    strEncFactor        db "-----------------------------------FACTORIAL-----------------------------------",0Dh,0Ah
+                        db "--> Rango Aceptado entre 00 y 08 <--",0Dh,0Ah,"$"
+    strFactOpera        db "! =","$"
 
     ;++++++++++++++++++++++++++++++++++++++++ Mensajes de Error +++++++++++++++++++++++++++++++++++++++++++++++
     ;mensaje de error, formato de la direccion invalido
@@ -63,6 +68,9 @@ data segment
 
     ;mensaje de error, no se encontro el fin de archivo ;
     erNoFinArch         db "Se esperaba fin de archivo ;","$"
+
+    ;mensaje de error, el número no está dentro del Rango
+    erRangFact          db "El número no está dentro del rango","$"
 
     ;+++++++++++++++++++++++++++++++++++++++++++++ Variables ++++++++++++++++++++++++++++++++++++++++++++++++++
     ;------- Variables Indice --------
@@ -193,6 +201,8 @@ code segment
         je  leerArchivo                             ;salta al menú Leer Archivo
         cmp AL,32h                                  ;compara si es la opción dos
         je  modoCalc                                ;si es, salta al modo calculadora
+        cmp AL,33h                                  ;compara si es la opción tres
+        je  factorial                               ;si es, salta al modo factorial
         cmp AL,35h                                  ;compara si es la opción cinco
         je  salirApp                                ;si es la opción 5 salta a la salida de la aplicación
         jmp menuPrin                                ;Si no es ninguna opcion, se mantiene en el menu
@@ -251,16 +261,16 @@ code segment
         mov CX,SI
         mov SI,00h
         loopValDir:
-            mov AL,pathArchivo[SI+2]
-            mov pathArchivo[SI],AL
+            mov AL,pathArchivo[SI+2]                ;corre dos posiciones el 3er caracter de la dirección
+            mov pathArchivo[SI],AL                  
             mov pathArchivoRep[SI],AL
             inc SI
         loop loopValDir
-        mov pathArchivo[SI],00h
-        mov pathArchivoRep[SI-1],70h
-        mov pathArchivoRep[SI-2],65h
-        mov pathArchivoRep[SI-3],72h
-        jmp sinErLeerArch
+        mov pathArchivo[SI],00h                     ;agrega nulo al final del path del archivo de entrada
+        mov pathArchivoRep[SI-1],70h                ;cambia la extensión del nombre del archivo R
+        mov pathArchivoRep[SI-2],65h                ;cambia la extensión del nombre del archivo E
+        mov pathArchivoRep[SI-3],72h                ;cambia la extensión del nombre del archivo P
+        jmp sinErLeerArch 
 
     ;muestra el mensaje de error en la dirección
     errorDir:
@@ -356,13 +366,13 @@ code segment
     endp
 
     ;Levanta la bandera de fin de archivo
-    validarFinArchivo:
-        inc finArchivo
+    validarFinArchivo:                              
+        inc finArchivo                              
         jmp incSILoopValidar
 
     ;error de Caracter invalido
     errorCaracter:
-        imprimir erCarInv
+        imprimir erCarInv 
         imprimirChar datosArchivo[SI]
         imprimir saltoLin
         inc hayError
@@ -468,75 +478,77 @@ code segment
 
     ;imprime la respuesta del archivo de entrada
     imprimirRes:
-        call aString
-        imprimir NumAux
-        call pausa
-        jmp mosMenuOpe
+        call aString                                ;convierte el resultado a String
+        imprimir NumAux                             ;imprime el resultado
+        call pausa                                  ;hace una pausa
+        jmp mosMenuOpe                              ;regresa al menú operaciones
 
+    ;convierte el resultado a una variable
+    ;tipo String
     aString proc
-        mov AX,resultado
-        mov DX,resultado
-        xor SI,SI
-        cmp flagSig,00h
-        je  resPositivo
-        mov AL,2Dh
-        mov NumAux[SI],AL
-        inc SI
-        mov AX,resultado
-        neg AX
-        neg DX
+        mov AX,resultado                            ;inicia AX con el resultado
+        mov DX,resultado                            ;inicia DX con el resultado
+        xor SI,SI                                   ;inicia SI en 0
+        cmp flagSig,00h                             ;compara si la variable bandera signo es 0
+        je  resPositivo                             ;si es 0 la respuesta es positiva, salta
+        mov AL,2Dh                                  ;Guarda en AL el signo -
+        mov NumAux[SI],AL                           ;Guarda el signo - en el numero Auxiliar
+        inc SI                                      ;incrementa SI
+        mov AX,resultado                            ;Guarda el resultado en AX
+        neg AX                                      ;Aplica complemento A2 al resultado
+        neg DX                                      ;Aplica complemento A2 al resultado
         resPositivo:
-            cmp resultado,2710h
-            jb  uMiles
-            xor DX,DX
-            mov BX,2710h
-            idiv BX
-            add AX,30h
-            mov NumAux[SI],AL
-            inc SI
-            mov AX,DX
+            cmp resultado,2710h                     ;compara si el resultado con 10,000
+            jb  uMiles                              ;si es menor salta a las Unidades de Mil
+            xor DX,DX                               ;si no, inicia DX en 0
+            mov BX,2710h                            ;Guarda 10,000 en BX
+            idiv BX                                 ;divide el resultado entre 10,000
+            add AX,30h                              ;toma el cociente le agrega 30, pasa a ASCII
+            mov NumAux[SI],AL                       ;agrega el digito en la variable numero auxiliar
+            inc SI                                  ;incrementa SI
+            mov AX,DX                               ;mueve el residuo a AX
         uMiles:
-            cmp resultado,3E8h
-            jb  centenas
-            xor DX,DX
-            mov BX,3E8h
-            idiv BX
-            add AX,30h
-            mov NumAux[SI],AL
-            inc SI
-            mov AX,DX
+            cmp resultado,3E8h                      ;compara si el resultado con 1,000
+            jb  centenas                            ;si es menor salta a las centenas
+            xor DX,DX                               ;si no, inicia DX en 0
+            mov BX,3E8h                             ;Guarda 1,000 en BX
+            idiv BX                                 ;divide el resultado entre 1,000
+            add AX,30h                              ;toma el cociente le agrega 30, pasa a ASCII
+            mov NumAux[SI],AL                       ;agrega el digito en la variable numero auxiliar
+            inc SI                                  ;incrementa SI
+            mov AX,DX                               ;mueve el residuo a AX
         centenas:
-            cmp resultado,064h
-            jb  decenas
-            xor DX,DX
-            mov BX,64h
-            idiv BX
-            add AX,30h
-            mov NumAux[SI],AL
-            inc SI
+            cmp resultado,064h                      ;compara si el resultado con 1,000
+            jb  decenas                             ;si es menor salta a las centenas
+            xor DX,DX                               ;si no, inicia DX en 0
+            mov BX,64h                              ;Guarda 1,000 en BX
+            idiv BX                                 ;divide el resultado entre 1,000
+            add AX,30h                              ;toma el cociente le agrega 30, pasa a ASCII
+            mov NumAux[SI],AL                       ;agrega el digito en la variable numero auxiliar
+            inc SI                                  ;incrementa SI
             mov AX,DX
         decenas:
-            cmp resultado,0Ah
-            jb  unidades
-            xor DX,DX
-            mov BX,0Ah
-            idiv BX
-            add AX,30h
-            mov NumAux[SI],AL
+            cmp resultado,0Ah                       ;compara si el resultado con 1,000
+            jb  unidades                            ;si es menor salta a las centenas
+            xor DX,DX                               ;si no, inicia DX en 0
+            mov BX,0Ah                              ;Guarda 1,000 en BX
+            idiv BX                                 ;divide el resultado entre 1,000
+            add AX,30h                              ;toma el cociente le agrega 30, pasa a ASCII
+            mov NumAux[SI],AL                       ;agrega el digito en la variable numero auxiliar
             inc SI
         unidades:
-            add DL,30h
-            mov NumAux[SI],DL
+            add DL,30h                              ;toma el cociente le agrega 30, pasa a ASCII
+            mov NumAux[SI],DL                       ;agrega el digito en la variable numero auxiliar
             inc SI
-            mov NumAux[SI],24h
+            mov NumAux[SI],24h                      ;agrega el fin de cadena al numero auxiliar
         ret
     endp
     ;imprimir la notación Postfija
     imprimirPostFija:
-        imprimir postFijo[0]
-        imprimir saltoLin
-        call pausa
-        jmp mosMenuOpe
+        imprimir postFijo[0]                        ;imprime el vector con la notación postFijo
+        imprimir saltoLin                           ;Imprime un salto de linea 
+        call pausa                                  ;hace una pausa
+        jmp mosMenuOpe                              ;regresa al menu de operaciones
 
     ;convierte de notación infija a postfija
     ;creando un vector con la notación postfija
@@ -545,10 +557,10 @@ code segment
         mov iListOpe,00h
         mov topPila,00h                             ;Inicia el Tope de la pila en 0
         loopInFPosF:
-            mov AX,iListOpe
-            mov BX,00h
-            mov DX,06h
-            call localizar
+            mov AX,iListOpe                         ;guarda la posición i en AX
+            mov BX,00h                              ;guarda la posición j en AX
+            mov DX,06h                              ;guarda el tamaño de la fila
+            call localizar                          ;Devuelve la posición lineal de la matriz
             mov SI,BX
             cmp listOpera[SI],00h                   ;compara si se llegó al final del vector
             je salirInFPosF                         ;si es el final se sale del loop         
@@ -556,15 +568,15 @@ code segment
             jb  pushPilaOpe                         ;si es menor es un operador, va a la pila
             jmp  pushPost                           ;si es mayor es un operando, va al vector postfijo
             incSILoopInFPosF:
-                inc iListOpe
+                inc iListOpe 
         loop loopInFPosF
         salirInFPosF:
-            cmp topPila,00h
-            ja  vaciarPila
+            cmp topPila,00h                         ;compara si la pila tiene elementos
+            ja  vaciarPila                          ;si aún hay elementos en la pila los saca
         ret
     endp
 
-    ;mete a la pila el valor
+    ;mete a la pila el operando
     pushPilaOpe:
         mov prioTopCar,00h                          ;inicia la variable de prioridad del Caracter leído en 0
         mov prioTopPila,00h                         ;inicia la variable de prioridad del top de la pila en 0
@@ -664,26 +676,26 @@ code segment
     ;calcula el resultado basado en
     ;la notación postfija
     calcularResultado proc
-        mov iPosFijo,00h
-        mov topPila,00h
+        mov iPosFijo,00h                            ;inicia el indice del vector postfijo en 0
+        mov topPila,00h                             ;inicia el top de la pila en 0
         loopCalcRes:
-            mov AX,iPosFijo
-            mov BX,00h
-            mov DX,06h
-            call localizar
-            cmp postFijo[BX],24h
-            je  salirCalcRes
-            cmp postFijo[BX],30h
-            jb  hacerOperacion
-            call concatNumAux
-            call aEntero
-            push BX
-            inc topPila
+            mov AX,iPosFijo                         ;guarda en AX, la poscición i de la matriz
+            mov BX,00h                              ;guarda en BX, la poscición j de la matriz
+            mov DX,06h                              ;Guarda en DX, el tamaño de las filas de la matriz
+            call localizar                          ;Calcula la posición lineal de la matriz
+            cmp postFijo[BX],24h                    ;verifica sí es fin de cadena
+            je  salirCalcRes                        ;si es fin de cadena, sale del loop
+            cmp postFijo[BX],30h                    ;compara si es 0 en ASCII
+            jb  hacerOperacion                      ;si es menor a 0, salta a realizar una operacion
+            call concatNumAux                       ;si no es menor a 0, concatena el numero
+            call aEntero                            ;convierte el numero concatenado en Entero
+            push BX                                 ;mete en la pila el número
+            inc topPila                             ;incrementa el top de la pila
             incILoopCalcRes:
-                inc iPosFijo
+                inc iPosFijo                        ;incrementa el indice a la siguiente posición a leer
         loop loopCalcRes
         salirCalcRes:
-            pop resultado
+            pop resultado                           ;saca el último resultado de la pila
             
         ret
     endp
@@ -693,71 +705,84 @@ code segment
     ;sacando los dos ultimos operandos
     ;almacenados en la pila
     hacerOperacion:
-        cmp topPila,02h
-        jb  salirCalcRes
-        pop Opera2
-        dec topPila
-        pop Opera1
-        dec topPila
-        mov DL,postFijo[BX]
-        mov operador,DL
-        call operar
-        push AX
-        inc topPila
-        jmp incILoopCalcRes
-
+        cmp topPila,02h                             ;compara si el top de la pila tiene 2
+        jb  salirCalcRes                            ;si tiene menos de 2 no hace la operacion
+        pop Opera2                                  ;saca el 2do operando de la pila
+        dec topPila                                 ;decrementa el top de la pila
+        pop Opera1                                  ;saca el 1er opearando de la pila
+        dec topPila                                 ;decrementa el top de la pila 
+        mov DL,postFijo[BX]                         ;guarda el operador en DL
+        mov operador,DL                             ;guarda en la variable operador DL
+        call operar                                 ;realiza la operación
+        push AX                                     ;mete el resultado en la pila
+        inc topPila                                 ;incrementa el top de la pila
+        jmp incILoopCalcRes                         ;regresa a leer el siguiente operando u operador
+    
+    ;selecciona la operación a realizar
+    ;basado en lo contenido en la 
+    ;variable operador
     operar proc
-        cmp operador,2Bh                            ;+
-        je  hacerSuma
-        cmp operador,2Dh                            ;-
-        je  hacerResta
-        cmp operador,2Ah                            ;*
-        je  hacerMulti
-        cmp operador,2Fh                            ;/
-        je  hacerDivi
+        cmp operador,2Bh                            ;compara si el operador es +
+        je  hacerSuma                               ;si es igual, salta y hace la suma
+        cmp operador,2Dh                            ;compra si el operador es -
+        je  hacerResta                              ;si es igual, salta y hace la resta
+        cmp operador,2Ah                            ;compara si el operador es *
+        je  hacerMulti                              ;si es igual, salta y hace la multiplicación
+        cmp operador,2Fh                            ;compara si el operador es /
+        je  hacerDivi                               ;si es igual, salta y hace la divición
         salirOperar:
-            mov resultado,AX
+            mov resultado,AX                        ;guarda el resultado en AX
         ret
     endp
-
+    ;realiza una suma entre las
+    ;variables Opera
     hacerSuma:
-        mov AX,Opera1
-        add AX,Opera2
-        mov flagSig,00h
-        jns salirOperar
-        call esNegativo
-        jmp salirOperar
+        mov AX,Opera1                               ;guarda el valor del primer operando en AX
+        add AX,Opera2                               ;suma a AX el segundo operando
+        mov flagSig,00h                             ;inicia la variable bandera Signo, en 0
+        jns salirOperar                             ;si la bandera signo no está levantada sale
+        call esNegativo                             ;si la bandera signo está levantada, flagSig vale 1
+        jmp salirOperar                             ;regresa
 
+    ;realiza una resta entre las
+    ;variables Opera
     hacerResta:
-        mov AX,Opera1
-        sub AX,Opera2
-        mov flagSig,00h
-        jns salirOperar
-        call esNegativo
-        jmp salirOperar
+        mov AX,Opera1                               ;guarda el valor del primer operando en AX
+        sub AX,Opera2                               ;resta a AX, el segundo operando
+        mov flagSig,00h                             ;inicia la variable bandera Signo, en 0
+        jns salirOperar                             ;si la bandera signo no está levantada sale
+        call esNegativo                             ;si la bandera signo está levantada, flagSig vale 1
+        jmp salirOperar                             ;regresa
 
+    ;realiza una multiplicación entre las
+    ;variables Opera
     hacerMulti:
-        mov AX,Opera1
-        imul Opera2
-        mov flagSig,00h
-        jns salirOperar
-        call esNegativo
-        jmp salirOperar
+        mov AX,Opera1                               ;guarda el valor del primer operando en AX
+        imul Opera2                                 ;realiza una mumltipliación entre los operandos
+        mov flagSig,00h                             ;inicia la variable bandera Signo, en 0
+        jns salirOperar                             ;si la bandera signo no está levantada sale
+        call esNegativo                             ;si la bandera signo está levantada, flagSig vale 1
+        jmp salirOperar                             ;regresa
 
+    ;realiza una divición entre las
+    ;variables Opera
     hacerDivi:
-        xor DX,DX
-        cmp numOpNeg,01h
-        jne diviPositiva
-        mov DX,0xFFFF
+        xor DX,DX                                   ;inicia el registro en 0
+        cmp numOpNeg,01h                            ;Compara la var de operandos negativos con 1
+        jne diviPositiva                            ;si no es igual la divición es positiva
+        mov DX,0xFFFF                               ;si es igual a 1, la división es negativa, inicia
+                                                    ;la word alta en FFFFF
         diviPositiva:
-        mov AX,Opera1
-        idiv Opera2
-        mov flagSig,00h
-        cmp numOpNeg,01h
-        jne salirOperar
-        call esNegativo
-        jmp salirOperar
+        mov AX,Opera1                               ;guarda el primer operando en AX
+        idiv Opera2                                 ;realiza la división con signo, de los operandos
+        mov flagSig,00h                             ;inicia la variable bandera signo, en 0
+        cmp numOpNeg,01h                            ;Compara la var de operandos negativos con 1
+        jne salirOperar                             ;si no es igual a 1, se sale
+        call esNegativo                             ;si es igual a 1, levanta variable bandera de signo
+        jmp salirOperar                             ;regresa
 
+    ;levanta la variable bandera
+    ;de signo a 1
     esNegativo proc
         mov flagSig,01h
         ret
@@ -765,18 +790,18 @@ code segment
     ;concatenar un numero en la
     ;Variable Numero Auxiliar
     concatNumAux proc
-        call limpNumAux
-        mov SI,BX
-        mov iAux,00h
-        mov CX,06h
+        call limpNumAux                             ;limpia la variable Numero Auxiliar
+        mov SI,BX                                   ;guarda el indice, BX, del caracter leído, en SI
+        mov iAux,00h                                ;inicia el indice auxiliar en 0
+        mov CX,06h                                  ;fija el loop en 6
         loopConNumAux:
-            mov AL,postFijo[SI]
-            cmp AL,00h
-            je  salirConNumAux
-            mov DI,iAux
-            mov NumAux[DI],AL
-            inc SI
-            inc iAux
+            mov AL,postFijo[SI]                     ;guarda el digito leído en AL
+            cmp AL,00h                              ;compara si es nulo el caracter leído
+            je  salirConNumAux                      ;si es nulo sale del metodo concatenar
+            mov DI,iAux                             ;si no, guarda el indice en DI
+            mov NumAux[DI],AL                       ;guarda el digito leído en la variable numero auxiliar
+            inc SI                                  ;mueve el indice a la siguiente posición
+            inc iAux                                ;incrementa el indice auxiliar
         loop loopConNumAux
         salirConNumAux:
             nop
@@ -785,20 +810,20 @@ code segment
 
     ;Procedimineto para pasar a Entero un String
     aEntero proc
-        mov CX,iAux
-        mov DI,iAux
-        dec DI
-        mov SI,00h 
-        mov BX,00h
+        mov CX,iAux                                 ;establece el loop al tamaño del numero numAux
+        mov DI,iAux                                 ;inicia el indice DI, en el tamaño del numero
+        dec DI                                      ;decrementa DI
+        xor SI,SI                                   ;Inicia SI en 0
+        xor BX,BX                                   ;inicia BX en 0
         loopEntero:  
-            mov AH,00h
-            mov AL,NumAux[DI]
-            sub AL,30h 
-            mul listaPond[SI]
-            add BX,AX
-            inc SI
-            inc SI
-            dec DI
+            mov AH,00h                              ;inicia AH en 0
+            mov AL,NumAux[DI]                       ;guarda en AL un digito del numero
+            sub AL,30h                              ;resta 30 al digito en ASCII
+            mul listaPond[SI]                       ;multiplica el digito por una ponderación Unidad, decena, centena..
+            add BX,AX                               ;acumula los valores en BX
+            inc SI                                  ;incrementa SI se mueve un byte
+            inc SI                                  ;incrementa SI nuevamente, se mueve un byte más. Total un word
+            dec DI                                  ;decrementa DI
         loop loopEntero 
         ret
     endp
@@ -806,66 +831,116 @@ code segment
     ;[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[ Modo Calculadora ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
     ;muestra el modo Calculadora
     modoCalc:
-        mov numOpNeg,00h
-        xor SI,SI
-        mov iAux,00h
-        mov flagSig,00h
-        call limpPant
-        imprimir strEncModCal
-        call ingresoNum
-        mov Opera1,BX
-        xor SI,SI
-        mov iAux,00h
-        mov flagSig,00h
-        imprimir saltoLin
-        imprimir strModCalcOpe
+        mov numOpNeg,00h                            ;inicia el contador de operadores negativos
+        xor SI,SI                                   ;inicia SI en 0
+        mov iAux,00h                                ;inicia el indice auxiliar en 0
+        mov flagSig,00h                             ;inicia la variable bandera signo en 0
+        call limpPant                               ;limpia la pantalla
+        imprimir strEncModCal                       ;muestra el encabezado del modo calculadora
+        call ingresoNum                             ;ingresa un numero y lo guarda en BX
+        mov Opera1,BX                               ;guarda el numero en Opera1
+        xor SI,SI                                   ;reinicia SI
+        mov iAux,00h                                ;reinicia el indice auxiliar
+        mov flagSig,00h                             ;reinicia la variable bandera de signo
+        imprimir saltoLin                           ;imprime un salto de línea
+        imprimir strModCalcOpe                      ;imprime la solicitud de operador
         mov AX,0000h                                ;limpia el registro AX
         mov AH,01h                                  ;Asigna la funcion para leer un caracter de teclado
         int 21h                                     ;llama a la interrupcion
         mov operador,AL                             ;Guarda el operador Leído
-        imprimir saltoLin
+        imprimir saltoLin                           ;imprimie un salto de linea
+        call ingresoNum                             ;ingresa un número y lo guarda en BX
+        mov Opera2,BX                               ;guarda el numero en Opera2
+        imprimir saltoLin                           ;imprime un salto de linea
+        call operar                                 ;realiza la operación
+        call aString                                ;convierte el resultado a String
+        imprimir strModCalcRes                      ;imprime el resultado
+        imprimir NumAux                             ;imprime el resultado
+        imprimir saltoLin                           ;imprime un salto de linea
+        imprimir strModCalcSal                      ;imprime la pregunta de salir
+        call pausa                                  ;espera un caracter, la opación elegida
+        cmp AL,32h                                  ;compara si es la opción 2
+        je  modoCalc                                ;si es la opción 2 muestra nuevamente esta etiqueta
+    jmp menuPrin                                    ;si no regresa al menú principal
+
+    ;solicita y guarda un número
+    ingresoNum proc
+        imprimir strModCalcNum                          ;imprime la solicitud de un número
+        loopLeerNum:
+            mov SI,iAux                                 ;inicia SI con el indice Auxiliar
+            mov AX,0000h                                ;limpia el registro AX
+            mov AH,01h                                  ;Asigna la funcion para leer un caracter de teclado
+            int 21h                                     ;llama a la interrupcion
+            cmp AL,0Dh                                  ;compara si es la tecla Enter
+            je  salirLeerNum                            ;si es Enter, sale del loop
+            cmp Al,2Dh                                  ;compara si es el signo -
+            jne mCNumPos                                ;si no es el signo menos, salta
+            call esNegativo                             ;si es el signo, cambia la variable bandera signo
+            inc numOpNeg                                ;incrementa el contador de operadores negativos
+            jmp loopLeerNum                             ;regresa
+            mCNumPos:                                   
+            mov NumAux[SI],AL                           ;guarda la tecla leída en el numero auxiliar
+            inc iAux                                    ;incrementa el indice
+        loop loopLeerNum
+        salirLeerNum:
+        mov NumAux[SI],00h                              ;agrega un nulo al final del número
+        call aEntero                                    ;convierte el número auxiliar a entero
+        cmp flagSig,00h                                 ;compara si la variable bandera signo está en 0
+        je  numPositivo                                 ;si está en 0 salta
+        neg BX                                          ;si no es 0, aplica complemento A2 al número
+        numPositivo:
+            nop
+        ret
+    endp
+
+    ;[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[ Modo Factorial ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+    ;muestra el modo Factorial
+    factorial: 
+        mov iaux,00h
+        call limpPant
+        imprimir strEncFactor
         call ingresoNum
-        mov Opera2,BX
         imprimir saltoLin
-        call operar
+        mov Opera1,BX                                   ;guarda el numero en Opera1
+        cmp Opera1,09h
+        jb  rangoCorrecto
+        imprimir erRangFact
+        call pausa
+        jmp factorial
+        rangoCorrecto:
+        xor AX,AX
+        mov BX,01h
+        mov iAux,01h
+        mov resultado,00h
+        mov Opera2,01h
         call aString
-        imprimir strModCalcRes
+        imprimir NumAux
+        imprimir strFactOpera
+        mov resultado,01h
+        call aString
         imprimir NumAux
         imprimir saltoLin
-        imprimir strModCalcSal
+        mov CX,Opera1
+        loopFactorial:
+            mov DX,iAux 
+            mov resultado,DX
+            call aString
+            imprimir numAux
+            imprimir strFactOpera
+            mov AX,Opera2
+            mov DX,iAux 
+            mul DX
+            mov Opera2,AX
+            mov resultado,AX
+            call aString
+            imprimir numAux
+            imprimir saltoLin
+            inc iAux
+        loop loopFactorial
         call pausa
-        cmp AL,32h
-        je  modoCalc
-    jmp menuPrin
+        jmp menuPrin
 
-ingresoNum proc
-    imprimir strModCalcNum
-    loopLeerNum:
-        mov SI,iAux
-        mov AX,0000h                                ;limpia el registro AX
-        mov AH,01h                                  ;Asigna la funcion para leer un caracter de teclado
-        int 21h                                     ;llama a la interrupcion
-        cmp AL,0Dh
-        je  salirLeerNum
-        cmp Al,2Dh
-        jne mCNumPos
-        call esNegativo
-        inc numOpNeg
-        jmp loopLeerNum
-        mCNumPos:
-        mov NumAux[SI],AL
-        inc iAux
-    loop loopLeerNum
-    salirLeerNum:
-    mov NumAux[SI],00h
-    call aEntero
-    cmp flagSig,00h
-    je  numPositivo
-    neg BX
-    numPositivo:
-        nop
-    ret
-endp
+
 ;Etiqueta Principal 
 start:
     ; set segment registers:

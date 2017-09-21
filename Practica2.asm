@@ -46,17 +46,31 @@ data segment
     strModCalcSal       db 0A8h,"Desea salir del modo Calculadora?",0Dh,0Ah
                         db "1- S",0A1h,0Dh,0Ah
                         db "2- No",0Dh,0Ah,"$"
+    strANS              db " ANS ","$"
+
 
     ;++++++++++++++++++++++++++++++++++++++++ String Modo Calculadora +++++++++++++++++++++++++++++++++++++++++
     strEncFactor        db "-----------------------------------FACTORIAL-----------------------------------",0Dh,0Ah
                         db "--> Rango Aceptado entre 00 y 08 <--",0Dh,0Ah,"$"
     strFactOpera        db "! =","$"
 
+    ;++++++++++++++++++++++++++++++++++++++++ String Reporte +++++++++++++++++++++++++++++++++++++++++
+    strNoRep            db "REPORTE PRACTICA NO. 2",0Dh,0Ah,"$"
+    strRepEnt           db "Entrada: ","$"
+    strRepRes           db "Resultado: ","$"
+    strRepPF            db "Notaci",0A2h,"n Postfija: ","$"
+    strRepFac           db "Factorial: ","$"
+    strRepHor           db "Hora: ","$"
+    strRepFec           db "Fecha: ","$"
+    strRepDP            db " : "
+    strRepD             db " / "
+    strRepCre           db "Reporte Creado con Exito",0Dh,0Ah,"$"
     ;++++++++++++++++++++++++++++++++++++++++ Mensajes de Error +++++++++++++++++++++++++++++++++++++++++++++++
     ;mensaje de error, formato de la direccion invalido
     erForInvDir         db "El formato de la direccion no es correcta",0Dh,0Ah
                         db "El formato correcto es ##<Direccion>##","$"
-    
+    ;mensaje de error al crear el archivo            
+    erCreArch           db "No se pudo crear el archivo de Reporte","$"
     ;mensaje de error al abrir el archivo
     erAbrArch           db "El archivo buscado no se encuentra...","$"
     ;mensaje de error, Caracter Invalido
@@ -65,7 +79,8 @@ data segment
     erNumInv            db "Error Caracter Invalido en el Número: ","$"
     ;mensaje de error, se esperaba fin de archivo 
     erFinArch           db "Se esperaba fin de archivo despues de punto y coma: ","$"
-
+    ;mensaje de error al ingresar el número modo Calculadora
+    erMCNum             db "Error: se esperaba un n",0A3h,"mero","$"
     ;mensaje de error, no se encontro el fin de archivo ;
     erNoFinArch         db "Se esperaba fin de archivo ;","$"
 
@@ -74,6 +89,8 @@ data segment
 
     ;+++++++++++++++++++++++++++++++++++++++++++++ Variables ++++++++++++++++++++++++++++++++++++++++++++++++++
     ;------- Variables Indice --------
+    ;Indice para el Tamaño leído del archivo
+    iDatosArch          dw 0
     ;Indice Actual lista OPERACIONES
     iListOpe            dw 0
     ;Indice digito Actual del Numero concatenado
@@ -82,8 +99,14 @@ data segment
     iPosFijo            dw 0
     ;Indice Auxiliar
     iAux                dw 0
+    ;Indice Factorial
+    iFactorial          dw 0
     ;numero negativos
     numOpNeg            db 0
+    ;Signo Operador 1
+    sigOpe1             db 0
+    ;contador Factorial
+    contFact            db 0
     ;Variable prioridad top Pila
     prioTopPila         db 0
     ;Variable prioridad caracter leido
@@ -96,6 +119,16 @@ data segment
     Resultado           dw 0
     ;variable operador
     Operador            db 0
+    ;día del Sistema
+    diaSis              db 0
+    ;mes del Sistema
+    mesSis              db 0
+    ;año del sistema 
+    anioSis             dw 0
+    ;hora del Sistema
+    horaSis             db 0
+    ;Minutos Sistema
+    MinSis              db 0
     ;Direccion del archivo
     pathArchivo         db 50 dup(0)
     ;Dirección del archivo de reporte
@@ -104,16 +137,30 @@ data segment
     datosArchivo        db 1000 dup(0)
     ;identificador del arhivo de entrada
     handle              dw ?
+    ;identificador del archivo de reporte 
+    handleRep           dw ?
     ;Lista de ponderaciones para pasar string a int
     listaPond           dw 0x0001,0x000A,0x0064,0x03E8,0x2710
     ;Lista de operaciones
     listOpera           db 300 dup(0)
     ;Arreglo Postfijo
     postFijo            db 300 dup('$')
+    ;Cadena para Imprimir Postfijo
+    RepPostFijo         db 300 dup('$')
+    ;cadena para imprimir Factorial
+    RepFactorial        db 150 dup('$')
     ;Var Tope de Pila
     topPila             db 0
+    ;Memoria ANS modo Calculadora
+    ANS                 dw 0
     ;Numero Auxiliar
     NumAux              db 7 dup('$')
+    ;Total
+    numTotal            db 7 dup(0)
+    ;largo del resultado
+    larNumTotal         dw 0
+    ;largo postFijo
+    larPostFijo         dw 0
     ;-------- Variables bandera ----------
     ;hubo error
     hayError            db 0
@@ -173,6 +220,23 @@ code segment
         ret
     endp
 
+    llenaTotal proc
+        mov CX,07h
+        mov iAux,00h
+        mov larNumTotal,00h
+        loopLlenaNumTot:
+            mov SI,iAux
+            mov BL,NumAux[SI]
+            mov numTotal[SI],BL
+            cmp BL,24h
+            je  salirLlenaTot
+            inc larNumTotal
+            salirLlenaTot:
+            inc iAux
+        loop loopLlenaNumTot
+        ret
+    endp
+
     ;Limpia la pantalla, modo texto
     limpPant proc
         mov AH, 00h
@@ -203,6 +267,8 @@ code segment
         je  modoCalc                                ;si es, salta al modo calculadora
         cmp AL,33h                                  ;compara si es la opción tres
         je  factorial                               ;si es, salta al modo factorial
+        cmp AL,34h                                  ;compara si es la opción cuatro
+        je  reporte                                 ;si es, salta a generar el reporte            
         cmp AL,35h                                  ;compara si es la opción cinco
         je  salirApp                                ;si es la opción 5 salta a la salida de la aplicación
         jmp menuPrin                                ;Si no es ninguna opcion, se mantiene en el menu
@@ -210,7 +276,7 @@ code segment
 
 
 
-    ;[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[ Lectuara de Archivo ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+    ;[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[ Lectura de Archivo ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
 
     ;muestra en pantalla la opción Leer Archivo
     leerArchivo:
@@ -315,6 +381,7 @@ code segment
     ;Valida el Archivo, que no tenga errores
     validaArchivo proc
         xor SI,SI                                   ;inicia el indice SI en 0    
+        mov iDatosArch,00h
         loopValidar:
             
             cmp datosArchivo[SI],20h                ;compara si es un espacio
@@ -328,7 +395,7 @@ code segment
             
             cmp datosArchivo[SI],0Ah                ;compara si es Nueva linea
             je  incSILoopValidar                    ;si es nueva linea continua con el loop
-
+            inc iDatosArch
             cmp datosArchivo[SI],2Bh                ;compara si es + 
             je incSILoopValidar                     ;si es + sigue con la siguiente iteracion
 
@@ -360,6 +427,7 @@ code segment
                 inc SI
         loop loopValidar
         salirValidar:
+            dec iDatosArch
             call errorNoFinArch 
             call pausa
         ret
@@ -397,6 +465,11 @@ code segment
 
     ;Menu de operaciones
     menuOpe:
+        mov iDatosArch,00h
+        mov iListOpe,00h
+        mov iPosFijo,00h
+        mov iAux,00h
+
         mov numOpNeg,00h
         call agregarMatriz
         call inFPosF
@@ -480,6 +553,7 @@ code segment
     imprimirRes:
         call aString                                ;convierte el resultado a String
         imprimir NumAux                             ;imprime el resultado
+        call llenaTotal
         call pausa                                  ;hace una pausa
         jmp mosMenuOpe                              ;regresa al menú operaciones
 
@@ -543,9 +617,40 @@ code segment
             mov NumAux[SI],24h                      ;agrega el fin de cadena al numero auxiliar
         ret
     endp
+
     ;imprimir la notación Postfija
     imprimirPostFija:
-        imprimir postFijo[0]                        ;imprime el vector con la notación postFijo
+        mov CX,300
+        xor SI,SI
+        mov larPostFijo,00h
+        mov iAux,00h
+        loopImpPostFija:
+            cmp postFijo[SI],00h
+            je  agregaEspa
+            cmp postFijo[SI],24h
+            je  salirloopImpPostF
+            mov iAux,00h
+            mov AL,postFijo[SI]
+            mov DI,larPostFijo
+            mov RepPostFijo[DI],AL
+            inc larPostFijo
+            jmp IncSILoopImpPost
+            agregaEspa:
+                cmp iAux,00h
+                jne IncSILoopImpPost
+                mov DI,larPostFijo
+                mov RepPostFijo[DI],20h
+                inc larPostFijo
+                inc iAux
+            IncSILoopImpPost:
+                inc SI
+        loop loopImpPostFija
+        salirloopImpPostF:
+        inc larPostFijo
+        mov SI,larPostFijo
+        dec larPostFijo
+        mov RepPostFijo[SI],24h
+        imprimir RepPostFijo                        ;imprime el vector con la notación postFijo
         imprimir saltoLin                           ;Imprime un salto de linea 
         call pausa                                  ;hace una pausa
         jmp mosMenuOpe                              ;regresa al menu de operaciones
@@ -569,6 +674,7 @@ code segment
             jmp  pushPost                           ;si es mayor es un operando, va al vector postfijo
             incSILoopInFPosF:
                 inc iListOpe 
+
         loop loopInFPosF
         salirInFPosF:
             cmp topPila,00h                         ;compara si la pila tiene elementos
@@ -760,8 +866,9 @@ code segment
         mov AX,Opera1                               ;guarda el valor del primer operando en AX
         imul Opera2                                 ;realiza una mumltipliación entre los operandos
         mov flagSig,00h                             ;inicia la variable bandera Signo, en 0
-        jns salirOperar                             ;si la bandera signo no está levantada sale
-        call esNegativo                             ;si la bandera signo está levantada, flagSig vale 1
+        cmp numOpNeg,01h                            ;Compara la var de operandos negativos con 1
+        jne salirOperar                             ;si no es igual a 1, se sale
+        call esNegativo                             ;si es igual a 1, levanta variable bandera de signo
         jmp salirOperar                             ;regresa
 
     ;realiza una divición entre las
@@ -770,6 +877,8 @@ code segment
         xor DX,DX                                   ;inicia el registro en 0
         cmp numOpNeg,01h                            ;Compara la var de operandos negativos con 1
         jne diviPositiva                            ;si no es igual la divición es positiva
+        cmp sigOpe1,00h
+        je  diviPositiva
         mov DX,0xFFFF                               ;si es igual a 1, la división es negativa, inicia
                                                     ;la word alta en FFFFF
         diviPositiva:
@@ -831,6 +940,7 @@ code segment
     ;[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[ Modo Calculadora ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
     ;muestra el modo Calculadora
     modoCalc:
+        mov sigOpe1,00h
         mov numOpNeg,00h                            ;inicia el contador de operadores negativos
         xor SI,SI                                   ;inicia SI en 0
         mov iAux,00h                                ;inicia el indice auxiliar en 0
@@ -839,12 +949,16 @@ code segment
         imprimir strEncModCal                       ;muestra el encabezado del modo calculadora
         call ingresoNum                             ;ingresa un numero y lo guarda en BX
         mov Opera1,BX                               ;guarda el numero en Opera1
+        cmp numOpNeg,00h
+        je  opePos
+        mov sigOpe1,01h
+        opePos:
         xor SI,SI                                   ;reinicia SI
         mov iAux,00h                                ;reinicia el indice auxiliar
         mov flagSig,00h                             ;reinicia la variable bandera de signo
         imprimir saltoLin                           ;imprime un salto de línea
         imprimir strModCalcOpe                      ;imprime la solicitud de operador
-        mov AX,0000h                                ;limpia el registro AX
+        xor AX,AX                                   ;limpia el registro AX
         mov AH,01h                                  ;Asigna la funcion para leer un caracter de teclado
         int 21h                                     ;llama a la interrupcion
         mov operador,AL                             ;Guarda el operador Leído
@@ -853,6 +967,8 @@ code segment
         mov Opera2,BX                               ;guarda el numero en Opera2
         imprimir saltoLin                           ;imprime un salto de linea
         call operar                                 ;realiza la operación
+        mov DX,resultado
+        mov ANS,DX
         call aString                                ;convierte el resultado a String
         imprimir strModCalcRes                      ;imprime el resultado
         imprimir NumAux                             ;imprime el resultado
@@ -865,16 +981,28 @@ code segment
 
     ;solicita y guarda un número
     ingresoNum proc
+        inicioInNum:
         imprimir strModCalcNum                          ;imprime la solicitud de un número
         loopLeerNum:
             mov SI,iAux                                 ;inicia SI con el indice Auxiliar
             mov AX,0000h                                ;limpia el registro AX
             mov AH,01h                                  ;Asigna la funcion para leer un caracter de teclado
             int 21h                                     ;llama a la interrupcion
+            
+            cmp AL,41h
+            je  callANS
+            cmp AL,61h
+            je  callANS
             cmp AL,0Dh                                  ;compara si es la tecla Enter
             je  salirLeerNum                            ;si es Enter, sale del loop
-            cmp Al,2Dh                                  ;compara si es el signo -
-            jne mCNumPos                                ;si no es el signo menos, salta
+            cmp Al,2Dh                                  ;compara si es el signo -                             
+            je  mCNumNeg                                ;si no es el signo menos, salta
+            cmp AL,39h
+            ja  erMDCacl
+            cmp AL,30h
+            jb  erMDCacl
+            jmp mCNumPos
+            mCNumNeg:
             call esNegativo                             ;si es el signo, cambia la variable bandera signo
             inc numOpNeg                                ;incrementa el contador de operadores negativos
             jmp loopLeerNum                             ;regresa
@@ -892,11 +1020,25 @@ code segment
             nop
         ret
     endp
-
+    ;Llamada a ANS
+    callANS:
+        mov BX,ANS
+        imprimir strANS
+    jmp numPositivo
+    ;error al ingresar un número
+    erMDCacl:
+        xor SI,SI
+        mov iAux,00h
+        imprimir saltoLin
+        imprimir erMCNum
+        imprimir saltoLin
+        call pausa
+        jmp inicioInNum
     ;[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[ Modo Factorial ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
     ;muestra el modo Factorial
     factorial: 
-        mov iaux,00h
+        mov iAux,00h
+        mov contFact,31h
         call limpPant
         imprimir strEncFactor
         call ingresoNum
@@ -914,33 +1056,194 @@ code segment
         mov resultado,00h
         mov Opera2,01h
         call aString
-        imprimir NumAux
-        imprimir strFactOpera
+        mov iFactorial,00h
+        xor SI,SI
+        call AddNumFac
+        mov DI,iFactorial
+        mov RepFactorial[DI],21h 
+        inc iFactorial
+        mov DI,iFactorial
+        mov RepFactorial[DI],3Dh
+        inc iFactorial
         mov resultado,01h
         call aString
-        imprimir NumAux
-        imprimir saltoLin
+        xor SI,SI
+        call AddNumFac
+        mov DI,iFactorial
+        mov RepFactorial[DI],0Dh 
+        inc iFactorial
+        mov DI,iFactorial
+        mov RepFactorial[DI],0Ah
+        inc iFactorial
         mov CX,Opera1
         loopFactorial:
+            mov contFact,31h
             mov DX,iAux 
             mov resultado,DX
             call aString
-            imprimir numAux
-            imprimir strFactOpera
+            xor SI,SI
+            call AddNumFac
+            mov DI,iFactorial
+            mov RepFactorial[DI],21h 
+            inc iFactorial
+            mov DI,iFactorial
+            mov RepFactorial[DI],3Dh
+            inc iFactorial
+            loopFac:
+                sub contFact,30h
+                mov BX,iAux
+                cmp contFact,BL
+                ja  salirloopFac
+                add contFact,30h
+                mov DI,iFactorial
+                mov BL,contFact
+                mov RepFactorial[DI],BL
+                inc iFactorial
+                mov DI,iFactorial
+                mov RepFactorial[DI],2Ah
+                inc iFactorial
+                inc contFact
+                jmp loopFac
+                salirloopFac:
+                dec iFactorial
+                mov RepFactorial[DI],3Dh
+                inc iFactorial
             mov AX,Opera2
             mov DX,iAux 
             mul DX
             mov Opera2,AX
             mov resultado,AX
             call aString
-            imprimir numAux
-            imprimir saltoLin
+            xor SI,SI
+            call AddNumFac
+            mov DI,iFactorial
+            mov RepFactorial[DI],0Dh 
+            inc iFactorial
+            mov DI,iFactorial
+            mov RepFactorial[DI],0Ah
+            inc iFactorial
             inc iAux
         loop loopFactorial
+        imprimir RepFactorial
         call pausa
         jmp menuPrin
 
+    AddNumFac proc
+            mov BL,numAux[SI]
+            cmp BL,24h
+            je saliAddNumFac
+            mov DI,iFactorial
+            mov RepFactorial[DI],BL
+            inc iFactorial
+            inc SI
+            jmp AddNumFac
+            saliAddNumFac:
+            ret
+    endP
+    ;[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[ Generación de Reporte ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+    ;Genera el archivo de Reporte
+    Reporte:
+        mov AH,3Ch                                  ;Crear Archivo
+        mov CX,00                                   ;Fichero Normal
+        lea DX,pathArchivoRep                       ;direccion del archivo a crear
+        int 21h                                     ;llamada a la interrupcion
+        jc  errorCrear                              ;salta si hay algun error
+        mov handleRep,AX                            ;obtiene el handle devuelto por la interrupcion
 
+        ;imprime en el archivo las cadenas del reporte
+        escArch stringEncabezado,0xD4               ;Imprime en archivo el encabezado
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch strNoRep,0x18                       ;Imprime en archivo el numero de reporte
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch strRepFec,0x07
+        call fechaSistema
+        xor DH,DH
+        mov DL,diaSis
+        mov resultado,DX
+        call aString
+        escArch numAux,SI
+        escArch strRepD,0x03
+        xor DH,DH
+        mov DL,mesSis
+        mov resultado,DX
+        call aString
+        escArch numAux,SI
+        escArch strRepD,0x03
+        mov DX,anioSis
+        mov resultado,DX
+        call aString
+        escArch numAux,SI
+
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea        
+        call horaSistema
+        xor DH,DH
+        mov DL,horasis
+        mov resultado,DX
+        call aString
+        escArch strRepHor,0x06
+        escArch numAux,SI
+        escArch strRepDP,0x03
+        xor DH,DH
+        mov DL,MinSis
+        mov resultado,DX
+        call aString
+        escArch numAux,SI
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch strRepEnt,0x09                      ;Imprime en archivo la entrada del archivo
+        escArch datosArchivo,iDatosArch
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch strRepRes,0x0B
+        escArch numTotal,larNumTotal
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch strRepPF,0x13
+        escArch RepPostFijo,larPostFijo
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch strRepFac,0x0B
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch RepFactorial,iFactorial
+        
+        mov BX,AX                                   ;mover Handle
+        mov AH,3Eh                                  ;Cierre de archivo
+        int 21h
+        imprimir strRepCre
+        call pausa
+        jmp menuPrin
+        errorCrear:
+            imprimir erCreArch                      ;Imprime el mensaje de error al crear el archivo
+            call pausa
+            jmp menuPrin
+                   
+    ;escribir en archivo
+    escArch macro dato,largo
+        push AX                                     ;Guarda el Valor de AX en la pila
+        mov AH,40h                                  ;Escritura en archivo
+        mov BX,handleRep                            ;handle del archivo de reporte
+        mov CX,largo                                ;cantidad de bytes a escribir
+        lea DX,dato                                 ;los datos a escribir
+        int 21h                                     ;llamada a la interrupcion
+        pop AX                                      ;Regresar el valor de AX    
+    endm 
+    ;Hora del Sistema
+    horaSistema proc
+        mov AH,2Ch
+        int 21h
+        mov horasis,CH
+        mov MinSis,CL
+        ret
+    endm
+    ;Fecha del Sistema
+    fechaSistema proc
+        mov AH,2Ah
+        int 21h
+        mov anioSis,CX
+        mov mesSis,DH
+        mov diaSis,DL
+        ret
+    endm
 ;Etiqueta Principal 
 start:
     ; set segment registers:

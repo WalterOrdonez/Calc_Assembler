@@ -35,12 +35,13 @@ data segment
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Variables +++++++++++++++++++++++++++++++++++++++++
     varAuxB             db 0
     varAuxW             dw 0
-    Opera1              db 0
-    Opera2              db 0
-    resultado           db 0
+    Opera1              dw 0
+    Opera2              dw 0
+    resultado           dw 0
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Arreglos ++++++++++++++++++++++++++++++++++++++++++
     Coefs               db 5 dup(0)
     Deriv               db 4 dup(0)
+    Integ               dw 5 dup(0)
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Banderas ++++++++++++++++++++++++++++++++++++++++++
     bandNumNeg          db 0
     ;+++++++++++++++++++++++++++++++++++++++++++++ Variables Indices ++++++++++++++++++++++++++++++++++++++
@@ -108,10 +109,23 @@ code segment
     ;realiza una multiplicación entre las
     ;variables Opera
     hacerMulti proc
-        mov AH,00h
-        mov AL,Opera1                             ;guarda el valor del primer operando en AX
+        mov AX,Opera1                               ;guarda el valor del primer operando en AX
         imul Opera2                                 ;realiza una mumltipliación entre los operandos
-        mov resultado,AL                            ;Se Guarda el resultado en la variable Resultado
+        mov resultado,AX                            ;Se Guarda el resultado en la variable Resultado
+        ret
+    endp
+    ;realiza una divición entre las
+    ;variables Opera
+    hacerDivi proc
+        xor DX,DX                                   ;inicia el registro en 0
+        cmp Opera1,3E8h                             ;Compara si el operador 1 con 1000
+        jb diviPositiva                             ;si es menor, la divición es positvia
+        mov DX,0xFFFF                               ;si no, la división es negativa, inicia
+                                                    ;la word alta en FFFF
+        diviPositiva:
+        mov AX,Opera1                               ;guarda el primer operando en AX
+        idiv Opera2                                 ;realiza la división con signo, de los operandos
+        mov resultado,AX                            ;Guarda el resultado en la variable
         ret
     endp
     ;+++++++++++++++++++++++++++++++++++++++ Etiquetas +++++++++++++++++++++++++++++++++++++++++++++++
@@ -130,7 +144,7 @@ code segment
         cmp AL,33h                                  ;compara si es la opción tres
         je  derivada                                ;si es, salta a calcular la derivada
         cmp AL,34h                                  ;compara si es la opción cuatro
-        ;je  integral                                ;si es, salta a calcular la integral de f
+        je  integral                                ;si es, salta a calcular la integral de f
         cmp AL,35h                                  ;compara si es la opción cinco
         je  menuGra                                 ;si es, salta al Menu Graficar
         cmp AL,36h                                  ;compara si es la opción seis
@@ -188,20 +202,49 @@ code segment
     derivada:
         mov CX,04h
         mov iCoefs,00h
-        mov Opera1,04h
+        mov Opera1,04h                              ;Inicia el Operador 1 en 4, grado más grande de f
         xor SI,SI
         loopCalcDerivada:
             mov SI,iCoefs
-            mov DL,Coefs[SI]
-            mov Opera2,DL
-            call hacerMulti
-            mov DL,resultado
-            mov Deriv[SI],DL
+            xor DH,DH
+            mov DL,Coefs[SI] 
+            mov Opera2,DX                           ;Guarda en Operador 2 el coeficiente de f
+            call hacerMulti                         ;Multiplica coeficiente con grado
+            mov DX,resultado                
+            mov Deriv[SI],DL                        ;Guarda el resultado en el vector derivada
             inc iCoefs
             dec Opera1
         loop loopCalcDerivada
         call pausa
         jmp MenuPrin
+
+    ;Calcular la Integral de f
+    integral:
+        mov CX,05h
+        xor SI,SI
+        xor DI,DI
+        loopCalcInteg:
+            xor DH,DH
+            mov DL,Coefs[SI]                        ;Guarda el coeficiente de f en DL
+            cmp DL,0Ah                              ;compara con 10
+            jb  digPost                             ;si es menor es un digito y es positivo
+            mov DH,0xFF                             ;si no, es un negativo, y se llena DH con FF, por el signo
+            digPost: 
+            mov Opera1,DX 
+            mov Opera2,64h
+            call hacerMulti                         ;se multiplica el coeficiente de f por 100, manejo de dos decimales
+            mov DX,Resultado
+            mov Opera1,DX                       
+            mov Opera2,CX
+            call hacerDivi                          ;se divide entre CX, o el grado del polinomio
+            mov DX,Resultado        
+            mov Integ[DI],DX                        ;Guarda el resultado en el vector Integral
+            inc SI
+            inc DI                                  ;Se aumenta DI, se mueve un byte
+            inc DI                                  ;se vuelve aumentar DI, se mueve otro byte, en total un word
+        loop loopCalcInteg
+        jmp MenuPrin
+
     ;Menu Graficar Funciones
     menuGra:
         call limpPant

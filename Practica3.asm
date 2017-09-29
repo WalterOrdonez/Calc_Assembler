@@ -33,11 +33,18 @@ data segment
                         db "3- Graficar Integral",0Dh,0Ah                 
                         db "4- Regresar",0Dh,0Ah,"$"
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Variables +++++++++++++++++++++++++++++++++++++++++
+    X                   dw 0
+    Y                   dw 0
+    OrgX                dw 0xA0
+    OrgY                dw 0x64
+    xPant               dw 0
+    yPant               dw 0
     varAuxB             db 0
     varAuxW             dw 0
     Opera1              dw 0
     Opera2              dw 0
     resultado           dw 0
+    resultadoW          dd 0
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Arreglos ++++++++++++++++++++++++++++++++++++++++++
     Coefs               db 5 dup(0)
     Deriv               db 4 dup(0)
@@ -75,7 +82,17 @@ code segment
         salirCompA2:
             nop
     endm
-    
+    ;Macro para pintar un pixel en pantalla
+    pixel macro xPix,yPix
+        push CX
+        mov AH,0Ch
+        mov AL,32h
+        mov BH,00h
+        mov DX,yPix
+        mov CX,xPix
+        int 10h
+        pop CX
+    endm
     ;+++++++++++++++++++++++++++++++++++++++ Procedimientos ++++++++++++++++++++++++++++++++++++++++++++
     ;Limpia la pantalla, modo texto
     limpPant proc
@@ -99,10 +116,9 @@ code segment
         int 21h                                     ;se llama a la interrupcion
         ret
     endp
-    ;Hace una pausa en la ejecución del código,
-    ;espera una pulsación de tecla para continuar
+    ;espera una pulsación de tecla con ECO
     leeTecla proc
-        mov AH,01h                                  ;Asigna la funcion para leer un caracter de teclado
+        mov AH,01h                                  ;Asigna la funcion para leer un caracter de teclado, mostrandolo en pantalla
         int 21h                                     ;llama a la interrupcion
         ret
     endp
@@ -128,6 +144,82 @@ code segment
         mov resultado,AX                            ;Guarda el resultado en la variable
         ret
     endp
+    ;realiza la potenciación tomando
+    ;Opera1 como base y Opera2 como potencia
+    hacerPot proc
+        push CX                                     ;Guarda el valor actual de CX en la pila
+        mov CX,Opera2                               ;se guarda la cantidad de veces a multiplicar
+        mov AX,01h                                  ;se inicia el acumulador con 1 en hexa
+        cmp CX,00h                                  ;si CX es 0, es una potencia elevada a la 0
+        je  salirPot                                ;sale, devolviendo un 1 como resultado
+        loopPot:
+            imul Opera1                             ;hace las multiplicaciones de la base
+        loop loopPot
+        salirPot:
+        mov resultadoW[0],AX                        ;se guarda el resultado, variable tamaño Doble Word
+        mov resultadoW[2],DX                        ;DX palabra alta, AX palabra baja
+        pop CX                                      ;se recupera el valor de CX
+        ret
+    endp
+
+    ;Calcular f(x)=y
+    calcY proc
+        mov Y,00h
+        mov CX,04h                                  ;Inicia CX en 4, el grado más grande de f
+        mov iCoefs,00h
+        loopCalcY:
+            mov DX,X                                
+            mov Opera1,DX                           ;Guarda en el operador 1 el valor de X
+            mov Opera2,CX                           ;Guarda en el operador 2 el grado
+            call hacerPot                           ;hace la potencia de X al grado
+            mov Opera1,AX                           ;Guarda el resultado de la potencia en el Operador 1
+            mov SI,iCoefs 
+            xor DH,DH                               ;pone 0 el byte más significativo de DX
+            mov DL,Coefs[SI]                        ;coeficiente en el byte menos significativo de DX
+            cmp DL,0Ah                              ;compara el coeficiente con 10 en hexa
+            jb  coefPost                            ;si es menor, es positivo
+            mov DH,0xFF                             ;sino negativo, guarda en el byte alto FF
+            coefPost:
+            mov Opera2,DX                           ;Guarda el coeficiente en el operador 2
+            call hacerMulti                         ;Hace la multiplicación, coeficiente y la potencia 
+            mov DX,Resultado                        
+            add Y,DX                                ;se le agrega a Y el resultado
+            inc iCoefs
+        loop loopCalcY
+        mov SI,iCoefs                               
+        xor DH,DH
+        mov DL,Coefs[SI]                            ;se agrega el ultimo coeficiente
+        cmp DL,0Ah                                  ;Comprobando nuevamente si es positivo o negativo
+        jb  coefPost2                               ;   .
+        mov DH,0xFF                                 ;   .
+        coefPost2:                                  ;   .
+            add Y,DX                                ;se suma a la variable Y
+        ret 
+    endp
+    ;Calcular la posición X en pantalla
+    ;Del pixel a pintar
+    calcXPix proc
+        mov DX,X
+        mov Opera1,DX
+        mov Opera2,08h
+        call hacerMulti
+        mov DX,OrgX
+        add DX,AX
+        mov xPant,DX
+        ret
+    endp
+    ;Calcular la posición Y en pantalla
+    ;Del pixel a pintar
+    calcYPix proc
+        mov DX,Y
+        mov Opera1,DX
+        mov Opera2,02h
+        call hacerMulti
+        mov DX,OrgY
+        sub DX,AX
+        mov yPant,DX
+        ret
+    endp
     ;+++++++++++++++++++++++++++++++++++++++ Etiquetas +++++++++++++++++++++++++++++++++++++++++++++++
     ;Menu principal de la aplicación
     MenuPrin:
@@ -140,7 +232,7 @@ code segment
         cmp AL,31h                                  ;compara si es la opción uno 
         je  ingFun                                  ;salta a Ingresar la función f
         cmp AL,32h                                  ;compara si es la opción dos
-        ;je  funMemoria                              ;si es, salta a mostrar la función en memoria
+        je  funMemoria                              ;si es, salta a mostrar la función en memoria
         cmp AL,33h                                  ;compara si es la opción tres
         je  derivada                                ;si es, salta a calcular la derivada
         cmp AL,34h                                  ;compara si es la opción cuatro
@@ -198,6 +290,14 @@ code segment
         mov bandNumNeg,00h                          ;La bandera de numeros negativos regresa a 0, positivo
         jmp loopIngCoef
 
+    ;Mostrar Función en Memoria
+    funMemoria:
+        mov Opera1,19h
+        mov Opera2,05h
+        call hacerPot
+        call pausa
+        jmp menuPrin
+
     ;Calcular la derivada de f
     derivada:
         mov CX,04h
@@ -251,13 +351,46 @@ code segment
         imprimir stringMenGra
         call pausa
         cmp AL,31h                                  ;compara si es la opción uno 
-        ;je  ingFun                                  ;si es, salta a Grafica de f
+        je  graFun                                  ;si es, salta a Grafica de f
         cmp AL,32h                                  ;compara si es la opción dos
         ;je  funMemoria                              ;si es, salta a Grafica de f'
         cmp AL,33h                                  ;compara si es la opción tres
         ;je  derivada                                ;si es, salta a Grafica de F
         cmp AL,34h                                  ;compara si es la opción cuatro
         je  MenuPrin                                ;si es, regresa al Menú Principal
+        jmp menuGra
+
+    ;Graficar Función f
+    graFun:
+        call limpPant
+        ;Iniciacion de modo video  
+        mov ax,13h                                  ;modo video
+        int 10h                               
+
+        mov CX,28h                                  ;Inicia el loop en 40 en hexa
+        mov X,0XFFEC                                ;inicia X en -20 en hexa
+        loopGraFun:
+            push CX                                 ;guarda el valor actual de CX en la pila
+            call calcY                              ;calcula f(x)=y
+            jns YPost                               ;sí Y no es negativa, salta a YPost
+            cmp Y,0xFFE2                            ;compara con -30
+            jb  salirLoopGraFun                     ;si es menor que -30 no grafica
+            jmp PintarPix                           ;si es mayor o igual grafica el punto
+            YPost:
+            cmp Y,1Eh                               ;Compara con 30
+            ja  salirLoopGraFun                     ;si es mayor a 30 no grafica
+            PintarPix:
+                call calcXPix                       ;convierte X, a coordenadas de la pantalla
+                call calcYPix                       ;convierte Y, a coordenadas de la pantalla
+                pixel xPant,yPant                   ;grafica el punto
+            salirLoopGraFun:
+            inc X
+            pop CX                                  ;recupera el valor de CX
+        loop loopGraFun
+        call pausa                                  ;espera una pulsación para salir
+        ;Regresar a modo texto 
+        mov ax,03h                                  ;Modo texto
+        int 10h
         jmp menuGra
 
 start:

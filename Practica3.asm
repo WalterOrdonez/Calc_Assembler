@@ -45,12 +45,14 @@ data segment
     Opera2              dw 0
     resultado           dw 0
     resultadoW          dd 0
+    numCoefs            dw 0
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Arreglos ++++++++++++++++++++++++++++++++++++++++++
     Coefs               db 5 dup(0)
     Deriv               db 4 dup(0)
-    Integ               dw 5 dup(0)
+    Integ               db 6 dup(0)
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Banderas ++++++++++++++++++++++++++++++++++++++++++
     bandNumNeg          db 0
+    bandFunAGra         db 0
     ;+++++++++++++++++++++++++++++++++++++++++++++ Variables Indices ++++++++++++++++++++++++++++++++++++++
     iCoefs              dw 0
 
@@ -161,11 +163,27 @@ code segment
         pop CX                                      ;se recupera el valor de CX
         ret
     endp
+    ;seleccionar si es F, f' o f
+    selecF proc
+        cmp bandFunAGra,00h                         ;compara la variable bandera con 0
+        jne gDeriv                                  ;si no es igual, no es la función y salta
+        mov DL,Coefs[SI]                            ;si es igual, Guarda el coeficiente
+        jmp salirSelecF                             ;sale del selector
+        gDeriv:
+        cmp bandFunAGra,01h                         ;compara la variable bandera con 1
+        jne gInteg                                  ;si no es igual, no es la derivada y salta
+        mov DL,Deriv[SI]                            ;si es igual, Guarda el coeficiente
+        jmp salirSelecF                             ;sale del selector
+        gInteg:
+        mov DL,Integ[SI]                            ;Guarda el coeficiente de la integral
+        salirSelecF:
+        ret
+    endp
 
     ;Calcular f(x)=y
     calcY proc
         mov Y,00h
-        mov CX,04h                                  ;Inicia CX en 4, el grado más grande de f
+        mov CX,numCoefs                             ;Inicia CX en 4, el grado más grande de f
         mov iCoefs,00h
         loopCalcY:
             mov DX,X                                
@@ -175,8 +193,8 @@ code segment
             mov Opera1,AX                           ;Guarda el resultado de la potencia en el Operador 1
             mov SI,iCoefs 
             xor DH,DH                               ;pone 0 el byte más significativo de DX
-            mov DL,Coefs[SI]                        ;coeficiente en el byte menos significativo de DX
-            cmp DL,0Ah                              ;compara el coeficiente con 10 en hexa
+            call selecF
+            cmp DX,0Ah                              ;compara el coeficiente con 10 en hexa
             jb  coefPost                            ;si es menor, es positivo
             mov DH,0xFF                             ;sino negativo, guarda en el byte alto FF
             coefPost:
@@ -196,6 +214,7 @@ code segment
             add Y,DX                                ;se suma a la variable Y
         ret 
     endp
+
     ;Calcular la posición X en pantalla
     ;Del pixel a pintar
     calcXPix proc
@@ -208,16 +227,54 @@ code segment
         mov xPant,DX
         ret
     endp
+
     ;Calcular la posición Y en pantalla
     ;Del pixel a pintar
     calcYPix proc
         mov DX,Y
         mov Opera1,DX
-        mov Opera2,02h
+        mov Opera2,01h
         call hacerMulti
         mov DX,OrgY
         sub DX,AX
         mov yPant,DX
+        ret
+    endp
+
+    ;Graficar los ejes X y Y
+    graEjes proc 
+        mov CX,140h
+        loopEjes:
+            cmp CX,0xC7
+            ja  ejeX
+            pixel 0xA0,CX
+            ejeX:
+            pixel CX,64h
+        loop loopEjes
+        ret
+    endp
+
+    ;Graficar un polinomio
+    graficar proc
+        loopGraFun:
+            push CX                                 ;guarda el valor actual de CX en la pila
+            call graEjes
+            call calcY                              ;calcula f(x)=y
+            jns YPost                               ;sí Y no es negativa, salta a YPost
+            cmp Y,0xFF9C                            ;compara con -100
+            jb  salirLoopGraFun                     ;si es menor que -100 no grafica
+            jmp PintarPix                           ;si es mayor o igual grafica el punto
+            YPost:
+            cmp Y,64h                               ;Compara con 100
+            ja  salirLoopGraFun                     ;si es mayor a 100 no grafica
+            PintarPix:
+                call calcXPix                       ;convierte X, a coordenadas de la pantalla
+                call calcYPix                       ;convierte Y, a coordenadas de la pantalla
+                pixel xPant,yPant                   ;grafica el punto
+            salirLoopGraFun:
+            inc X
+            pop CX                                  ;recupera el valor de CX
+        loop loopGraFun
         ret
     endp
     ;+++++++++++++++++++++++++++++++++++++++ Etiquetas +++++++++++++++++++++++++++++++++++++++++++++++
@@ -315,6 +372,7 @@ code segment
             inc iCoefs
             dec Opera1
         loop loopCalcDerivada
+        call limpPant
         call pausa
         jmp MenuPrin
 
@@ -322,7 +380,6 @@ code segment
     integral:
         mov CX,05h
         xor SI,SI
-        xor DI,DI
         loopCalcInteg:
             xor DH,DH
             mov DL,Coefs[SI]                        ;Guarda el coeficiente de f en DL
@@ -330,19 +387,15 @@ code segment
             jb  digPost                             ;si es menor es un digito y es positivo
             mov DH,0xFF                             ;si no, es un negativo, y se llena DH con FF, por el signo
             digPost: 
-            mov Opera1,DX 
-            mov Opera2,64h
-            call hacerMulti                         ;se multiplica el coeficiente de f por 100, manejo de dos decimales
-            mov DX,Resultado
             mov Opera1,DX                       
             mov Opera2,CX
             call hacerDivi                          ;se divide entre CX, o el grado del polinomio
             mov DX,Resultado        
-            mov Integ[DI],DX                        ;Guarda el resultado en el vector Integral
+            mov Integ[SI],DL                        ;Guarda el resultado en el vector Integral
             inc SI
-            inc DI                                  ;Se aumenta DI, se mueve un byte
-            inc DI                                  ;se vuelve aumentar DI, se mueve otro byte, en total un word
         loop loopCalcInteg
+        call limpPant
+        call pausa
         jmp MenuPrin
 
     ;Menu Graficar Funciones
@@ -353,9 +406,9 @@ code segment
         cmp AL,31h                                  ;compara si es la opción uno 
         je  graFun                                  ;si es, salta a Grafica de f
         cmp AL,32h                                  ;compara si es la opción dos
-        ;je  funMemoria                              ;si es, salta a Grafica de f'
+        je  graDeriv                                ;si es, salta a Grafica de f'
         cmp AL,33h                                  ;compara si es la opción tres
-        ;je  derivada                                ;si es, salta a Grafica de F
+        je  graInteg                                ;si es, salta a Grafica de F
         cmp AL,34h                                  ;compara si es la opción cuatro
         je  MenuPrin                                ;si es, regresa al Menú Principal
         jmp menuGra
@@ -363,36 +416,49 @@ code segment
     ;Graficar Función f
     graFun:
         call limpPant
-        ;Iniciacion de modo video  
         mov ax,13h                                  ;modo video
         int 10h                               
-
         mov CX,28h                                  ;Inicia el loop en 40 en hexa
         mov X,0XFFEC                                ;inicia X en -20 en hexa
-        loopGraFun:
-            push CX                                 ;guarda el valor actual de CX en la pila
-            call calcY                              ;calcula f(x)=y
-            jns YPost                               ;sí Y no es negativa, salta a YPost
-            cmp Y,0xFFE2                            ;compara con -30
-            jb  salirLoopGraFun                     ;si es menor que -30 no grafica
-            jmp PintarPix                           ;si es mayor o igual grafica el punto
-            YPost:
-            cmp Y,1Eh                               ;Compara con 30
-            ja  salirLoopGraFun                     ;si es mayor a 30 no grafica
-            PintarPix:
-                call calcXPix                       ;convierte X, a coordenadas de la pantalla
-                call calcYPix                       ;convierte Y, a coordenadas de la pantalla
-                pixel xPant,yPant                   ;grafica el punto
-            salirLoopGraFun:
-            inc X
-            pop CX                                  ;recupera el valor de CX
-        loop loopGraFun
+        mov bandFunAGra,00h                         ;bandera indica que se grafica la función
+        mov numCoefs,04h                            ;Indica los 5 coeficientes posibles 
+        call graficar                               ;Grafica la función
         call pausa                                  ;espera una pulsación para salir
-        ;Regresar a modo texto 
         mov ax,03h                                  ;Modo texto
         int 10h
         jmp menuGra
 
+    ;Graficar Derivada
+    graDeriv:
+        call limpPant
+        mov ax,13h                                  ;modo video
+        int 10h                               
+        mov CX,28h                                  ;Inicia el loop en 40 en hexa
+        mov X,0XFFEC                                ;inicia X en -20 en hexa
+        mov bandFunAGra,01h                         ;bandera indica que se grafica la derivada
+        mov numCoefs,03h                            ;Indica que tiene 4 coeficientes posibles
+        call graficar                               ;Grafica la Derivada
+        call pausa                                  ;espera una pulsación para salir
+        mov ax,03h                                  ;Modo texto
+        int 10h
+        jmp menuGra
+
+    ;Graficar Integral
+    graInteg:
+        call limpPant
+        mov ax,13h                                  ;modo video
+        int 10h                               
+        mov CX,28h                                  ;Inicia el loop en 40 en hexa
+        mov X,0XFFEC                                ;inicia X en -20 en hexa
+        mov bandFunAGra,02h                         ;bandera indica que se grafica la Integral
+        mov numCoefs,05h                            ;Indica que tiene 4 coeficientes posibles
+        mov SI,numCoefs
+        mov Integ[SI],00h                           ;Asignacion de la constante C
+        call graficar                               ;Grafica la Integral
+        call pausa                                  ;espera una pulsación para salir
+        mov ax,03h                                  ;Modo texto
+        int 10h
+        jmp menuGra
 start:
 ; set segment registers:
     mov ax, data

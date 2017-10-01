@@ -9,6 +9,7 @@ data segment
     stringCoef          db "Coeficiente de X","$"
     ;+++++++++++++++++++++++++++++++++++++++++ Mensajes de Error +++++++++++++++++++++++++++++++++++++++++
     erCarInv            db 0Dh,0Ah,"Error Caracter invalido",0Dh,0Ah,"$"
+    erNoFun             db "No se ha encontrado función en memoria",0Dh,0Ah,"$"
     ;++++++++++++++++++++++++++++ String del encabezado y menú principal +++++++++++++++++++++++++++++++++ 
     stringEncabezado    db "Universidad de San Carlos de Guatemala",0Dh,0Ah
                         db "Facultad de Ingenieria",0Dh,0Ah
@@ -50,11 +51,19 @@ data segment
     Coefs               db 5 dup(0)
     Deriv               db 4 dup(0)
     Integ               db 6 dup(0)
+    strFunc             db 23 dup("$")
+    strDeriv            db 22 dup("$")
+    strInteg            db 38 dup("$")
+    NumAux              db 4 dup("$")
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Banderas ++++++++++++++++++++++++++++++++++++++++++
     bandNumNeg          db 0
     bandFunAGra         db 0
+    bandFunMem          db 0
     ;+++++++++++++++++++++++++++++++++++++++++++++ Variables Indices ++++++++++++++++++++++++++++++++++++++
     iCoefs              dw 0
+    iFuncion            dw 0
+    iDerivada           dw 0
+    iIntegral           dw 0
 
 ends
 ;______________________________________________Segmento Stack _____________________________________________
@@ -124,6 +133,55 @@ code segment
         int 21h                                     ;llama a la interrupcion
         ret
     endp
+
+    ;convierte el resultado a una variable
+    ;tipo String
+    aString proc
+        mov AX,resultado                            ;inicia AX con el resultado
+        mov DX,resultado                            ;inicia DX con el resultado
+        xor SI,SI                                   ;inicia SI en 0
+        cmp resultado,064h                          ;compara si el resultado con 1,000
+        jb  decenas                                 ;si es menor salta a las centenas
+        xor DX,DX                                   ;si no, inicia DX en 0
+        mov BX,64h                                  ;Guarda 100 en BX
+        idiv BX                                     ;divide el resultado entre 100
+        add AX,30h                                  ;toma el cociente le agrega 30, pasa a ASCII
+        mov NumAux[SI],AL                           ;agrega el digito en la variable numero auxiliar
+        inc SI                                      ;incrementa SI
+        mov AX,DX
+        decenas:
+            cmp resultado,0Ah                       ;compara si el resultado con 10
+            jb  unidades                            ;si es menor salta a las centenas
+            xor DX,DX                               ;si no, inicia DX en 0
+            mov BX,0Ah                              ;Guarda 10 en BX
+            idiv BX                                 ;divide el resultado entre 10
+            add AX,30h                              ;toma el cociente le agrega 30, pasa a ASCII
+            mov NumAux[SI],AL                       ;agrega el digito en la variable numero auxiliar
+            inc SI
+        unidades:
+            add DL,30h                              ;toma el cociente le agrega 30, pasa a ASCII
+            mov NumAux[SI],DL                       ;agrega el digito en la variable numero auxiliar
+            inc SI
+            mov NumAux[SI],24h                      ;agrega el fin de cadena al numero auxiliar
+        ret
+    endp
+
+    ;Guarda el NumAux al Vector strDeriv
+    movNumAuxAstrDeriv proc
+        xor SI,SI
+        loopMovNumADeriv:
+            mov DI,iDerivada
+            mov DL,NumAux[SI]
+            cmp DL,24h
+            je  salirLoopMov
+            mov strDeriv[DI],DL
+            inc iDerivada
+            inc SI
+            jmp loopMovNumADeriv
+        salirLoopMov:
+        ret
+    endp
+
     ;realiza una multiplicación entre las
     ;variables Opera
     hacerMulti proc
@@ -146,6 +204,47 @@ code segment
         mov resultado,AX                            ;Guarda el resultado en la variable
         ret
     endp
+    ;Calcular la derivada de f
+    derivada proc
+        mov CX,04h
+        mov iCoefs,00h
+        mov Opera1,04h                              ;Inicia el Operador 1 en 4, grado más grande de f
+        xor SI,SI
+        loopCalcDerivada:
+            mov SI,iCoefs
+            xor DH,DH
+            mov DL,Coefs[SI] 
+            mov Opera2,DX                           ;Guarda en Operador 2 el coeficiente de f
+            call hacerMulti                         ;Multiplica coeficiente con grado
+            mov DX,resultado                
+            mov Deriv[SI],DL                        ;Guarda el resultado en el vector derivada
+            inc iCoefs
+            dec Opera1
+        loop loopCalcDerivada
+        ret
+    endp
+
+    ;Calcular la Integral de f
+    integral proc
+        mov CX,05h
+        xor SI,SI
+        loopCalcInteg:
+            xor DH,DH
+            mov DL,Coefs[SI]                        ;Guarda el coeficiente de f en DL
+            cmp DL,0Ah                              ;compara con 10
+            jb  digPost                             ;si es menor es un digito y es positivo
+            mov DH,0xFF                             ;si no, es un negativo, y se llena DH con FF, por el signo
+            digPost: 
+            mov Opera1,DX                       
+            mov Opera2,CX
+            call hacerDivi                          ;se divide entre CX, o el grado del polinomio
+            mov DX,Resultado        
+            mov Integ[SI],DL                        ;Guarda el resultado en el vector Integral
+            inc SI
+        loop loopCalcInteg
+        ret
+    endp
+
     ;realiza la potenciación tomando
     ;Opera1 como base y Opera2 como potencia
     hacerPot proc
@@ -291,9 +390,9 @@ code segment
         cmp AL,32h                                  ;compara si es la opción dos
         je  funMemoria                              ;si es, salta a mostrar la función en memoria
         cmp AL,33h                                  ;compara si es la opción tres
-        je  derivada                                ;si es, salta a calcular la derivada
+        je  derMemoria                              ;si es, salta a calcular la derivada
         cmp AL,34h                                  ;compara si es la opción cuatro
-        je  integral                                ;si es, salta a calcular la integral de f
+        je  intMemoria                              ;si es, salta a calcular la integral de f
         cmp AL,35h                                  ;compara si es la opción cinco
         je  menuGra                                 ;si es, salta al Menu Graficar
         cmp AL,36h                                  ;compara si es la opción seis
@@ -335,6 +434,9 @@ code segment
                 mov bandNumNeg,00h                  
                 imprimir saltoLin
         loop loopIngCoef
+        call derivada
+        call integral
+        mov bandFunMem,01h
         call pausa
         jmp menuPrin
     ;es negativo el numero
@@ -347,56 +449,129 @@ code segment
         mov bandNumNeg,00h                          ;La bandera de numeros negativos regresa a 0, positivo
         jmp loopIngCoef
 
-    ;Mostrar Función en Memoria
+    ;Mostrar función en Memoria
     funMemoria:
-        mov Opera1,19h
-        mov Opera2,05h
-        call hacerPot
+        call limpPant
+        cmp bandFunMem,00h
+        je  errorNoFuncion
+        mov bandFunAGra,00h
+        mov iCoefs,00h
+        mov iFuncion,00h
+        mov varAuxB,34h
+        mov CX,05h
+        loopFunMem:
+            mov SI,iCoefs
+            mov DI,iFuncion
+            call selecF
+            cmp DL,0Ah
+            jb  Cpost
+            mov strFunc[DI],2Dh
+            inc iFuncion
+            mov DI,iFuncion
+            neg DL
+            jmp Cpost2
+            Cpost:
+                cmp DL,00h
+                je incIndLoopFunMem
+                mov strFunc[DI],2Bh
+                inc iFuncion
+                mov DI,iFuncion
+                Cpost2:
+                add DL,30h
+                mov strFunc[DI],DL
+                inc iFuncion
+                cmp varAuxB,30h
+                je  incIndLoopFunMem
+                mov DI,iFuncion
+                mov strFunc[DI],58h
+                inc iFuncion
+                cmp varAuxB,31h
+                je  espStrFunc  
+                mov DI,iFuncion
+                mov DL,varAuxB
+                mov strFunc[DI],DL
+                inc iFuncion
+                espStrFunc:
+                mov DI,iFuncion
+                mov strFunc[DI],20h
+                inc iFuncion
+            incIndLoopFunMem:
+                dec varAuxB
+                inc iCoefs
+        loop loopFunMem
+        mov DI,iFuncion
+        mov strFunc[DI],24h
+        imprimir strFunc
         call pausa
         jmp menuPrin
 
-    ;Calcular la derivada de f
-    derivada:
-        mov CX,04h
-        mov iCoefs,00h
-        mov Opera1,04h                              ;Inicia el Operador 1 en 4, grado más grande de f
-        xor SI,SI
-        loopCalcDerivada:
-            mov SI,iCoefs
-            xor DH,DH
-            mov DL,Coefs[SI] 
-            mov Opera2,DX                           ;Guarda en Operador 2 el coeficiente de f
-            call hacerMulti                         ;Multiplica coeficiente con grado
-            mov DX,resultado                
-            mov Deriv[SI],DL                        ;Guarda el resultado en el vector derivada
-            inc iCoefs
-            dec Opera1
-        loop loopCalcDerivada
-        call limpPant
+    ;Mostrar error que no hay función en memoria
+    errorNoFuncion:
+        imprimir erNoFun
         call pausa
-        jmp MenuPrin
+        jmp menuPrin
 
-    ;Calcular la Integral de f
-    integral:
-        mov CX,05h
-        xor SI,SI
-        loopCalcInteg:
-            xor DH,DH
-            mov DL,Coefs[SI]                        ;Guarda el coeficiente de f en DL
-            cmp DL,0Ah                              ;compara con 10
-            jb  digPost                             ;si es menor es un digito y es positivo
-            mov DH,0xFF                             ;si no, es un negativo, y se llena DH con FF, por el signo
-            digPost: 
-            mov Opera1,DX                       
-            mov Opera2,CX
-            call hacerDivi                          ;se divide entre CX, o el grado del polinomio
-            mov DX,Resultado        
-            mov Integ[SI],DL                        ;Guarda el resultado en el vector Integral
-            inc SI
-        loop loopCalcInteg
+    ;Mostrar Derivada en memoria
+    derMemoria:
+        call limpPant
+        cmp bandFunMem,00h
+        je  errorNoFuncion
+        mov bandFunAGra,01h
+        mov iCoefs,00h
+        mov iDerivada,00h
+        mov varAuxB,33h
+        mov CX,04h
+        looderMemoria:
+            mov SI,iCoefs
+            mov DI,iDerivada
+            call selecF
+            cmp DL,64h
+            jb  CDpost
+            mov strDeriv[DI],2Dh
+            inc iDerivada
+            mov DI,iDerivada
+            neg DL
+            jmp CDpost2
+            CDpost:
+                cmp DL,00h
+                je incIndlooderMemoria
+                mov strDeriv[DI],2Bh
+                inc iDerivada
+                CDpost2:
+                xor DH,DH
+                mov resultado,DX
+                call aString
+                call movNumAuxAstrDeriv
+                cmp varAuxB,30h
+                je  incIndlooDerMemoria
+                mov DI,iDerivada
+                mov strDeriv[DI],58h
+                inc iDerivada
+                cmp varAuxB,31h
+                je  espstrDeriv  
+                mov DI,iDerivada
+                mov DL,varAuxB
+                mov strDeriv[DI],DL
+                inc iDerivada
+                espstrDeriv:
+                mov DI,iDerivada
+                mov strDeriv[DI],20h
+                inc iDerivada
+            incIndlooDerMemoria:
+                dec varAuxB
+                inc iCoefs
+        loop looderMemoria
+        mov DI,iDerivada
+        mov strDeriv[DI],24h
+        imprimir strDeriv
+        call pausa
+        jmp menuPrin
+
+    ;Mostrar Integral en memoria
+    intMemoria:
         call limpPant
         call pausa
-        jmp MenuPrin
+        jmp menuPrin
 
     ;Menu Graficar Funciones
     menuGra:

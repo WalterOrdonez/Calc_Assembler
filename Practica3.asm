@@ -7,9 +7,12 @@ data segment
     saltoLin            db 0Dh,0Ah,"$"
     ;ingresar coeficiente x
     stringCoef          db "Coeficiente de X","$"
+    strRepCre           db "Reporte Creado con Exito",0Dh,0Ah,"$"
     ;+++++++++++++++++++++++++++++++++++++++++ Mensajes de Error +++++++++++++++++++++++++++++++++++++++++
     erCarInv            db 0Dh,0Ah,"Error Caracter invalido",0Dh,0Ah,"$"
     erNoFun             db "No se ha encontrado función en memoria",0Dh,0Ah,"$"
+    ;mensaje de error al crear el archivo            
+    erCreArch           db "No se pudo crear el archivo de Reporte","$"
     ;++++++++++++++++++++++++++++ String del encabezado y menú principal +++++++++++++++++++++++++++++++++ 
     stringEncabezado    db "Universidad de San Carlos de Guatemala",0Dh,0Ah
                         db "Facultad de Ingenieria",0Dh,0Ah
@@ -47,6 +50,18 @@ data segment
     resultado           dw 0
     resultadoW          dd 0
     numCoefs            dw 0
+    ;día del Sistema
+    diaSis              db 0
+    ;mes del Sistema
+    mesSis              db 0
+    ;año del sistema 
+    anioSis             dw 0
+    ;hora del Sistema
+    horaSis             db 0
+    ;Minutos Sistema
+    MinSis              db 0
+    ;identificador del archivo de reporte 
+    handleRep           dw ?
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Arreglos ++++++++++++++++++++++++++++++++++++++++++
     Coefs               db 5 dup(0)
     Deriv               db 4 dup(0)
@@ -54,7 +69,9 @@ data segment
     strFunc             db 23 dup("$")
     strDeriv            db 22 dup("$")
     strInteg            db 38 dup("$")
-    NumAux              db 4 dup("$")
+    NumAux              db 5 dup("$")
+    ;Dirección del archivo de reporte
+    pathArchivoRep      db "Reporte.rep",00h
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Banderas ++++++++++++++++++++++++++++++++++++++++++
     bandNumNeg          db 0
     bandFunAGra         db 0
@@ -64,6 +81,15 @@ data segment
     iFuncion            dw 0
     iDerivada           dw 0
     iIntegral           dw 0
+    ;++++++++++++++++++++++++++++++++++++++++ String Reporte +++++++++++++++++++++++++++++++++++++++++
+    strRepFac           db "Factorial: ","$"
+    strRepHor           db "Hora: ","$"
+    strRepFec           db "Fecha: ","$"
+    strRepDP            db " : "
+    strRepD             db " / "
+    strRepFun           db "Funci",0A2h,"n Original: ",0Dh,0Ah,"$"
+    strRepDer           db "Derivada: ",0Dh,0Ah,"$"
+    strRepInt           db "Integral: ",0Dh,0Ah,"$"
 
 ends
 ;______________________________________________Segmento Stack _____________________________________________
@@ -103,6 +129,16 @@ code segment
         mov CX,xPix
         int 10h
         pop CX
+    endm
+    ;escribir en archivo
+    escArch macro dato,largo
+        push AX                                     ;Guarda el Valor de AX en la pila
+        mov AH,40h                                  ;Escritura en archivo
+        mov BX,handleRep                            ;handle del archivo de reporte
+        mov CX,largo                                ;cantidad de bytes a escribir
+        lea DX,dato                                 ;los datos a escribir
+        int 21h                                     ;llamada a la interrupcion
+        pop AX                                      ;Regresar el valor de AX    
     endm
     ;+++++++++++++++++++++++++++++++++++++++ Procedimientos ++++++++++++++++++++++++++++++++++++++++++++
     ;Limpia la pantalla, modo texto
@@ -376,6 +412,26 @@ code segment
         loop loopGraFun
         ret
     endp
+
+    ;Hora del Sistema
+    horaSistema proc
+        mov AH,2Ch
+        int 21h
+        mov horasis,CH
+        mov MinSis,CL
+        ret
+    endm
+
+    ;Fecha del Sistema
+    fechaSistema proc
+        mov AH,2Ah
+        int 21h
+        mov anioSis,CX
+        mov mesSis,DH
+        mov diaSis,DL
+        ret
+    endm
+
     ;+++++++++++++++++++++++++++++++++++++++ Etiquetas +++++++++++++++++++++++++++++++++++++++++++++++
     ;Menu principal de la aplicación
     MenuPrin:
@@ -396,7 +452,7 @@ code segment
         cmp AL,35h                                  ;compara si es la opción cinco
         je  menuGra                                 ;si es, salta al Menu Graficar
         cmp AL,36h                                  ;compara si es la opción seis
-        ;je  reporte                                 ;si es, salta a generar el reporte            
+        je  reporte                                 ;si es, salta a generar el reporte            
         cmp AL,37h                                  ;compara si es la opción Siete
         je  salirApp                                ;si es la opción 7 salta a la salida de la aplicación
         jmp menuPrin                                ;Si no es ninguna opcion, se mantiene en el menu
@@ -452,58 +508,58 @@ code segment
     ;Mostrar función en Memoria
     funMemoria:
         call limpPant
-        cmp bandFunMem,00h
-        je  errorNoFuncion
-        mov bandFunAGra,00h
+        cmp bandFunMem,00h                          ;compara la bandera de almacenamiento de función en memoria
+        je  errorNoFuncion                          ;si es 0, aún no se ha almacenado la función
+        mov bandFunAGra,00h                         ;guarda con que polinomio se está trabajando 0 función
         mov iCoefs,00h
         mov iFuncion,00h
-        mov varAuxB,34h
+        mov varAuxB,34h                             ;Inicia la variable con 4 en ASCII 
         mov CX,05h
         loopFunMem:
             mov SI,iCoefs
             mov DI,iFuncion
-            call selecF
-            cmp DL,0Ah
-            jb  Cpost
-            mov strFunc[DI],2Dh
+            call selecF                             ;selecciona el coeficiente indicado por SI
+            cmp DL,0Ah                              ;compara con 10
+            jb  Cpost                               ;si es menor salta a positivo
+            mov strFunc[DI],2Dh                     ;si no, guarda un - en el vector
             inc iFuncion
             mov DI,iFuncion
-            neg DL
-            jmp Cpost2
+            neg DL                                  ;aplica complemento A2
+            jmp Cpost2                              
             Cpost:
-                cmp DL,00h
-                je incIndLoopFunMem
-                mov strFunc[DI],2Bh
+                cmp DL,00h                          ;compara con 0 el coeficiente
+                je incIndLoopFunMem                 ;si es 0, sigue con el siguiente coeficiente
+                mov strFunc[DI],2Bh                 ;guarda el signo + en el vector
                 inc iFuncion
                 mov DI,iFuncion
                 Cpost2:
-                add DL,30h
-                mov strFunc[DI],DL
+                add DL,30h                          ;le suma 30 al coeficiente, para convertirlo a ASCII
+                mov strFunc[DI],DL                  ;guarda el coeficiente en el vector
                 inc iFuncion
-                cmp varAuxB,30h
-                je  incIndLoopFunMem
-                mov DI,iFuncion
-                mov strFunc[DI],58h
+                cmp varAuxB,30h                     ;compara el exponente actual es 0
+                je  incIndLoopFunMem                ;si es, no agrega la X
+                mov DI,iFuncion     
+                mov strFunc[DI],58h                 ;Agrega la X al vector
                 inc iFuncion
-                cmp varAuxB,31h
-                je  espStrFunc  
+                cmp varAuxB,31h                     ;compara el exponente con 1
+                je  espStrFunc                      ;si es no agrega el 1 despues de la X
                 mov DI,iFuncion
-                mov DL,varAuxB
-                mov strFunc[DI],DL
+                mov DL,varAuxB                      ;agrega el exponente
+                mov strFunc[DI],DL 
                 inc iFuncion
                 espStrFunc:
                 mov DI,iFuncion
-                mov strFunc[DI],20h
+                mov strFunc[DI],20h                 ;agrega un espacio
                 inc iFuncion
             incIndLoopFunMem:
                 dec varAuxB
                 inc iCoefs
         loop loopFunMem
         mov DI,iFuncion
-        mov strFunc[DI],24h
+        mov strFunc[DI],24h                         ;agrega el fin de cadena al final del vector
         imprimir strFunc
         call pausa
-        jmp menuPrin
+        jmp menuPrin                                ;regresa al menú principal
 
     ;Mostrar error que no hay función en memoria
     errorNoFuncion:
@@ -514,55 +570,55 @@ code segment
     ;Mostrar Derivada en memoria
     derMemoria:
         call limpPant
-        cmp bandFunMem,00h
-        je  errorNoFuncion
-        mov bandFunAGra,01h
-        mov iCoefs,00h
+        cmp bandFunMem,00h                          ;compara si hay función almacenada
+        je  errorNoFuncion                          ;si no hay función muestra error
+        mov bandFunAGra,01h                         ;establece la bandera en 1, derivada
+        mov iCoefs,00h 
         mov iDerivada,00h
-        mov varAuxB,33h
+        mov varAuxB,33h                             ;inicia la variable en grado 3
         mov CX,04h
         looderMemoria:
             mov SI,iCoefs
             mov DI,iDerivada
-            call selecF
-            cmp DL,64h
-            jb  CDpost
-            mov strDeriv[DI],2Dh
-            inc iDerivada
+            call selecF                             ;selecciona el coeficiente indicado por SI
+            cmp DL,64h                              ;compara el coeficiente con 100
+            jb  CDpost                              ;si es menor, es positivo
+            mov strDeriv[DI],2Dh                    ;si no es negativo, y almacena el -        
+            inc iDerivada 
             mov DI,iDerivada
-            neg DL
+            neg DL                                  ;aplica complemento A2 al número
             jmp CDpost2
             CDpost:
-                cmp DL,00h
-                je incIndlooderMemoria
-                mov strDeriv[DI],2Bh
+                cmp DL,00h                          ;compara coeficiente con 0
+                je incIndlooderMemoria              ;si es, sigue con el siguiente coeficiente
+                mov strDeriv[DI],2Bh                ;agrega el signo +
                 inc iDerivada
                 CDpost2:
                 xor DH,DH
                 mov resultado,DX
-                call aString
-                call movNumAuxAstrDeriv
-                cmp varAuxB,30h
-                je  incIndlooDerMemoria
-                mov DI,iDerivada
-                mov strDeriv[DI],58h
-                inc iDerivada
-                cmp varAuxB,31h
-                je  espstrDeriv  
+                call aString                        ;convierte a String el coeficiente
+                call movNumAuxAstrDeriv             ;guarda el String en el vector derivada
+                cmp varAuxB,30h                     ;compara el exponente con 0 en ASCII
+                je  incIndlooDerMemoria             ;si es no agrega la X
+                mov DI,iDerivada                    
+                mov strDeriv[DI],58h                ;Agrega la X al vector
+                inc iDerivada                       
+                cmp varAuxB,31h                     ;compara el exponente con 1 en ASCII
+                je  espstrDeriv                     ;no agrega el 1 despues de la X
                 mov DI,iDerivada
                 mov DL,varAuxB
-                mov strDeriv[DI],DL
+                mov strDeriv[DI],DL                 ;agrega el exponente al vector
                 inc iDerivada
                 espstrDeriv:
                 mov DI,iDerivada
-                mov strDeriv[DI],20h
+                mov strDeriv[DI],20h                ;agrega un espacio al vector
                 inc iDerivada
             incIndlooDerMemoria:
                 dec varAuxB
                 inc iCoefs
         loop looderMemoria
         mov DI,iDerivada
-        mov strDeriv[DI],24h
+        mov strDeriv[DI],24h                        ;agrega el final de cadena
         imprimir strDeriv
         call pausa
         jmp menuPrin
@@ -570,6 +626,69 @@ code segment
     ;Mostrar Integral en memoria
     intMemoria:
         call limpPant
+        cmp bandFunMem,00h                          ;compara la bandera de función en memoria con 0
+        je  errorNoFuncion                          ;si es igual, muestra error
+        mov bandFunAGra,00h                         ;Establece la bandera en 0, coeficiente de la función
+        mov iCoefs,00h
+        mov iIntegral,00h
+        mov varAuxB,35h
+        mov CX,05h
+        loopIntMem:
+            mov SI,iCoefs
+            mov DI,iIntegral
+            call selecF                             ;selecciona el coeficiente indicado por SI
+            cmp DL,0Ah                              ;compara el coeficiente con 10
+            jb  CIpost                              ;si es menor, es positivo
+            mov strInteg[DI],2Dh                    ;si no, agrega un signo -
+            inc iIntegral       
+            mov DI,iIntegral
+            neg DL
+            jmp CIpost2                     
+            CIpost:
+                cmp DL,00h                          ;compara el coeficiente con 0
+                je incIndLoopIntMem                 ;si es, sigue con el siguiente coeficiente
+                mov strInteg[DI],2Bh                ;si no, agrega el signo +
+                inc iIntegral
+                mov DI,iIntegral
+                CIpost2:
+                add DL,30h                          ;suma 30 al coeficiente, pasa a código ASCII
+                mov strInteg[DI],DL                 ;guarda el coeficiente en el vector
+                inc iIntegral
+                cmp varAuxB,30h                     ;compara el exponente con 0
+                je  incIndLoopIntMem                ;si es, no agrega la X
+                mov DI,iIntegral
+                mov strInteg[DI],2Fh                ;agrega el simbolo /
+                inc iIntegral
+                mov DI,iIntegral
+                mov DL,varAuxB
+                mov strInteg[DI],DL                 ;agrega el exponente como divisor
+                inc iIntegral
+                mov DI,iIntegral
+                mov strInteg[DI],58h                ;agrega la X al vector
+                inc iIntegral
+                cmp varAuxB,31h                     ;compara el exponente con 1
+                je  espstrInteg                     ;si es, no agrega el 1 después de la X
+                mov DI,iIntegral
+                mov DL,varAuxB
+                mov strInteg[DI],DL                 ;agrega el exponente
+                inc iIntegral
+                espstrInteg:
+                mov DI,iIntegral
+                mov strInteg[DI],20h                ;agrega un espacio
+                inc iIntegral
+            incIndLoopIntMem:
+                dec varAuxB
+                inc iCoefs
+        loop loopIntMem
+        mov DI,iIntegral
+        mov strInteg[DI],2Bh                        ;agrega el signo +
+        inc iIntegral
+        mov DI,iIntegral
+        mov strInteg[DI],43h                        ;agrega la constante C
+        inc iIntegral
+        mov DI,iIntegral
+        mov strInteg[DI],24h                        ;agrega el final de cadena
+        imprimir strInteg
         call pausa
         jmp menuPrin
 
@@ -634,6 +753,76 @@ code segment
         mov ax,03h                                  ;Modo texto
         int 10h
         jmp menuGra
+
+    ;Generar Reporte
+    Reporte:
+        mov AH,3Ch                                  ;Crear Archivo
+        mov CX,00                                   ;Fichero Normal
+        lea DX,pathArchivoRep                       ;direccion del archivo a crear
+        int 21h                                     ;llamada a la interrupcion
+        jc  errorCrear                              ;salta si hay algun error
+        mov handleRep,AX                            ;obtiene el handle devuelto por la interrupcion
+
+        ;imprime en el archivo las cadenas del reporte
+        escArch stringEncabezado,0xE5               ;Imprime en archivo el encabezado
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch strRepFec,0x07
+        call fechaSistema                           ;obtiene la fecha del sistema
+        xor DH,DH
+        mov DL,diaSis
+        mov resultado,DX
+        call aString                                ;convierte el día de la fecha a String
+        escArch NumAux,SI                           ;Escribe el día en el reporte
+        escArch strRepD,0x03                        ;Escribe una diagonal
+        xor DH,DH
+        mov DL,mesSis                   
+        mov resultado,DX
+        call aString                                ;convierte el mes de la fecha a string
+        escArch NumAux,SI                           ;Escribe la fecha en el reporte
+        escArch strRepD,0x03                        ;Escribe una diagonal
+        mov DX,anioSis
+        mov resultado,DX
+        call aString                                ;convierte el año de la fecha en string
+        escArch NumAux,SI                           ;escribe la fecha en el reporte
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea        
+        call horaSistema                            ;obtiene la hora del sistema
+        xor DH,DH
+        mov DL,horasis              
+        mov resultado,DX    
+        call aString                                ;convierte la hora a String
+        escArch strRepHor,0x06                      ;escribe la palabra hora
+        escArch NumAux,SI                           ;escribe la Hora en el reporte
+        escArch strRepDP,0x03                       ;escribe : en el reporte
+        xor DH,DH
+        mov DL,MinSis
+        mov resultado,DX
+        call aString                                ;convierte los minutos a String
+        escArch NumAux,SI                           ;Escribe los minutos en el reporte
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch strRepFun,0x14                      ;Imprime en archivo la entrada del archivo
+        escArch strFunc,iFuncion                    ;Escribe la función original
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch strRepDer,0x0C                      ;Escribe la palabra Derivada
+        escArch strDeriv,iDerivada                  ;Escribe la Derivada de f
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch saltoLin,0x02                       ;Imprime en archivo un salto de linea
+        escArch strRepInt,0x0C                      ;Escribe la palabra Integral
+        escArch strInteg,iIntegral                  ;escribe la integral
+        
+        mov handleRep,AX                            ;obtiene el handle devuelto por la interrupcion        
+        mov BX,AX                                   ;mover Handle
+        mov AH,3Eh                                  ;Cierre de archivo
+        int 21h
+        imprimir strRepCre
+        call pausa
+        jmp menuPrin
+        errorCrear:
+            imprimir erCreArch                      ;Imprime el mensaje de error al crear el archivo
+            call pausa
+            jmp menuPrin
 start:
 ; set segment registers:
     mov ax, data
@@ -654,5 +843,4 @@ start:
     mov ax, 4c00h ; exit to operating system.
     int 21h    
 ends
-
 end start ; set entry point and stop the assembler.

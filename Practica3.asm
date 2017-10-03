@@ -8,6 +8,7 @@ data segment
     ;ingresar coeficiente x
     stringCoef          db "Coeficiente de X","$"
     strRepCre           db "Reporte Creado con Exito",0Dh,0Ah,"$"
+    strConsC            db "Ingrese el valor de la constante C",0Dh,0Ah,"$"
     ;+++++++++++++++++++++++++++++++++++++++++ Mensajes de Error +++++++++++++++++++++++++++++++++++++++++
     erCarInv            db 0Dh,0Ah,"Error Caracter invalido",0Dh,0Ah,"$"
     erNoFun             db "No se ha encontrado función en memoria",0Dh,0Ah,"$"
@@ -60,6 +61,8 @@ data segment
     horaSis             db 0
     ;Minutos Sistema
     MinSis              db 0
+    ;constante C
+    constC              db 0
     ;identificador del archivo de reporte 
     handleRep           dw ?
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Arreglos ++++++++++++++++++++++++++++++++++++++++++
@@ -110,14 +113,6 @@ code segment
          mov AH,02h                                 ;funcion 2, imprimir byte en pantalla
          mov DL,char                                ;valor del parametro char a DL
          int 21h                                    ;se llama a la interrupcion
-    endm
-    ;si es Negativo aplica Complemento A2
-    compA2 macro num
-        cmp bandNumNeg,00h
-        je  salirCompA2
-        neg num
-        salirCompA2:
-            nop
     endm
     ;Macro para pintar un pixel en pantalla
     pixel macro xPix,yPix
@@ -170,12 +165,31 @@ code segment
         ret
     endp
 
+    ;si es Negativo aplica Complemento A2
+    compA2 proc
+        cmp bandNumNeg,00h
+        je  salirCompA2
+        neg varAuxW
+        salirCompA2:
+        ret
+    endp
+
     ;convierte el resultado a una variable
     ;tipo String
     aString proc
         mov AX,resultado                            ;inicia AX con el resultado
         mov DX,resultado                            ;inicia DX con el resultado
         xor SI,SI                                   ;inicia SI en 0
+        cmp resultado,3E8h                          ;compara si el resultado con 1,000
+        jb  centenas                                ;si es menor salta a las centenas
+        xor DX,DX                                   ;si no, inicia DX en 0
+        mov BX,3E8h                                 ;Guarda 1,000 en BX
+        idiv BX                                     ;divide el resultado entre 1,000
+        add AX,30h                                  ;toma el cociente le agrega 30, pasa a ASCII
+        mov NumAux[SI],AL                           ;agrega el digito en la variable numero auxiliar
+        inc SI                                      ;incrementa SI
+        mov AX,DX                                   ;mueve el residuo a AX
+        centenas:
         cmp resultado,064h                          ;compara si el resultado con 1,000
         jb  decenas                                 ;si es menor salta a las centenas
         xor DX,DX                                   ;si no, inicia DX en 0
@@ -267,14 +281,6 @@ code segment
         loopCalcInteg:
             xor DH,DH
             mov DL,Coefs[SI]                        ;Guarda el coeficiente de f en DL
-            cmp DL,0Ah                              ;compara con 10
-            jb  digPost                             ;si es menor es un digito y es positivo
-            mov DH,0xFF                             ;si no, es un negativo, y se llena DH con FF, por el signo
-            digPost: 
-            mov Opera1,DX                       
-            mov Opera2,CX
-            call hacerDivi                          ;se divide entre CX, o el grado del polinomio
-            mov DX,Resultado        
             mov Integ[SI],DL                        ;Guarda el resultado en el vector Integral
             inc SI
         loop loopCalcInteg
@@ -329,20 +335,27 @@ code segment
             mov SI,iCoefs 
             xor DH,DH                               ;pone 0 el byte más significativo de DX
             call selecF
-            cmp DX,0Ah                              ;compara el coeficiente con 10 en hexa
+            cmp DX,64h                              ;compara el coeficiente con 10 en hexa
             jb  coefPost                            ;si es menor, es positivo
             mov DH,0xFF                             ;sino negativo, guarda en el byte alto FF
             coefPost:
             mov Opera2,DX                           ;Guarda el coeficiente en el operador 2
             call hacerMulti                         ;Hace la multiplicación, coeficiente y la potencia 
             mov DX,Resultado                        
+            cmp bandFunAGra,02h                     ;compara si la bandera es 2, integral
+            jne nodivide                            ;si no lo es, no divide
+            mov Opera1,DX               
+            mov Opera2,CX
+            call hacerDivi                          ;si es, hace la división de la integral
+            mov DX,Resultado
+            nodivide:                        
             add Y,DX                                ;se le agrega a Y el resultado
             inc iCoefs
         loop loopCalcY
         mov SI,iCoefs                               
         xor DH,DH
-        mov DL,Coefs[SI]                            ;se agrega el ultimo coeficiente
-        cmp DL,0Ah                                  ;Comprobando nuevamente si es positivo o negativo
+        call selecF                                 ;se agrega el ultimo coeficiente
+        cmp DL,64h                                  ;Comprobando nuevamente si es positivo o negativo
         jb  coefPost2                               ;   .
         mov DH,0xFF                                 ;   .
         coefPost2:                                  ;   .
@@ -378,6 +391,7 @@ code segment
 
     ;Graficar los ejes X y Y
     graEjes proc 
+        push CX
         mov CX,140h
         loopEjes:
             cmp CX,0xC7
@@ -386,14 +400,15 @@ code segment
             ejeX:
             pixel CX,64h
         loop loopEjes
+        pop CX
         ret
     endp
 
     ;Graficar un polinomio
     graficar proc
+        call graEjes
         loopGraFun:
             push CX                                 ;guarda el valor actual de CX en la pila
-            call graEjes
             call calcY                              ;calcula f(x)=y
             jns YPost                               ;sí Y no es negativa, salta a YPost
             cmp Y,0xFF9C                            ;compara con -100
@@ -464,6 +479,7 @@ code segment
         call limpPant
         mov CX,05h                                  ;Establece en 5 el contador del Loop
         loopIngCoef:                                ;loop para ingresar los 5 coeficientes
+            mov bandNumNeg,00h 
             imprimir stringCoef                     ;Imprime la petición del x coeficiente
             mov DL,varAuxB                          ;   .
             imprimirChar DL                         ;   .
@@ -482,12 +498,16 @@ code segment
                 cmp AL,39h                          ;compara si es 9 en ASCII
                 ja  errorCarInv                     ;si es mayor no es un número, salta a error
                 sub AL,30h                          ;resta 30 al número, para pasarlo a entero
-                compA2 AL                           ;comprueba si es negativo el número y aplica complemento A2
+                xor DH,DH
+                mov DL,AL
+                mov varAuxW,DX
+                call compA2                         ;comprueba si es negativo el número y aplica complemento A2
+                mov DX,varAuxw
+                mov AL,DL
                 mov SI,iCoefs                       
                 mov Coefs[SI],AL                    ;Guarda el numero en el vector de coeficientes
                 inc iCoefs             
                 dec varAuxB
-                mov bandNumNeg,00h                  
                 imprimir saltoLin
         loop loopIngCoef
         call derivada
@@ -739,21 +759,61 @@ code segment
 
     ;Graficar Integral
     graInteg:
+        mov varAuxB,00h
+        mov bandNumNeg,00h
         call limpPant
-        mov ax,13h                                  ;modo video
+        imprimir strconsC
+        constanteC:
+            call leeTecla
+            cmp Al,2Dh
+            je ConsCNeg
+            cmp AL,2Bh                              ;Compara si es el signo +
+            je  constanteC                          ;Simplemente la ignora
+            cmp AL,30h
+            jb errorConsC
+            cmp AL,39h                              ;compara si es 9 en ASCII
+            ja errorConsC
+            sub AL,30h
+            cmp varAuxB,00h
+            ja seguDig
+            mov AH,AL
+            mov DL,0Ah
+            mul DL
+            mov constC,AL
+            inc varAuxB
+            jmp constanteC
+            seguDig:
+            add constC,AL
+            xor DH,DH
+            mov DL,constC
+            mov varAuxW,DX
+            call compA2
+            mov DX,varAuxW
+            mov constC,DL
+            call pausa
+        call limpPant
+        mov AX,13h                                  ;modo video
         int 10h                               
         mov CX,28h                                  ;Inicia el loop en 40 en hexa
         mov X,0XFFEC                                ;inicia X en -20 en hexa
         mov bandFunAGra,02h                         ;bandera indica que se grafica la Integral
         mov numCoefs,05h                            ;Indica que tiene 4 coeficientes posibles
         mov SI,numCoefs
-        mov Integ[SI],00h                           ;Asignacion de la constante C
+        mov DL,constC
+        mov Integ[SI],DL                            ;Asignacion de la constante C
         call graficar                               ;Grafica la Integral
         call pausa                                  ;espera una pulsación para salir
         mov ax,03h                                  ;Modo texto
         int 10h
         jmp menuGra
-
+    ;Levanta la bandera negativa
+    ConsCNeg:
+        mov bandNumNeg,01h
+        jmp constanteC
+    ;error al ingresar un caracter no valido
+    errorConsC:
+        imprimir erCarInv           
+        jmp graInteg
     ;Generar Reporte
     Reporte:
         mov AH,3Ch                                  ;Crear Archivo

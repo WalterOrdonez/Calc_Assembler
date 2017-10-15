@@ -9,6 +9,8 @@ data segment
     stringCoef          db "Coeficiente de X","$"
     strRepCre           db "Reporte Creado con Exito",0Dh,0Ah,"$"
     strConsC            db "Ingrese el valor de la constante C",0Dh,0Ah,"$"
+    strLInfX            db "Ingrese el l",0A1h,"mite inferior de X: ","$"
+    strLSupX            db "Ingrese el l",0A1h,"mite superior de X: ","$"
     ;+++++++++++++++++++++++++++++++++++++++++ Mensajes de Error +++++++++++++++++++++++++++++++++++++++++
     erCarInv            db 0Dh,0Ah,"Error Caracter invalido",0Dh,0Ah,"$"
     erNoFun             db "No se ha encontrado función en memoria",0Dh,0Ah,"$"
@@ -38,6 +40,8 @@ data segment
                         db "3- Graficar Integral",0Dh,0Ah                 
                         db "4- Regresar",0Dh,0Ah,"$"
     ;++++++++++++++++++++++++++++++++++++++++++++++++++ Variables +++++++++++++++++++++++++++++++++++++++++
+    linfX               db 0
+    lSupX               db 0
     X                   dw 0
     Y                   dw 0
     OrgX                dw 0xA0
@@ -287,6 +291,8 @@ code segment
         ret
     endp
 
+    
+    
     ;realiza la potenciación tomando
     ;Opera1 como base y Opera2 como potencia
     hacerPot proc
@@ -730,6 +736,8 @@ code segment
     ;Graficar Función f
     graFun:
         call limpPant
+        imprimir strLInfX                           
+        
         mov ax,13h                                  ;modo video
         int 10h                               
         mov CX,28h                                  ;Inicia el loop en 40 en hexa
@@ -769,27 +777,27 @@ code segment
             je ConsCNeg
             cmp AL,2Bh                              ;Compara si es el signo +
             je  constanteC                          ;Simplemente la ignora
-            cmp AL,30h
-            jb errorConsC
+            cmp AL,30h                              ;compara con 0 en ASCII
+            jb errorConsC                           ;si es menor, es un error caracter invalido
             cmp AL,39h                              ;compara si es 9 en ASCII
-            ja errorConsC
-            sub AL,30h
-            cmp varAuxB,00h
-            ja seguDig
-            mov AH,AL
-            mov DL,0Ah
-            mul DL
-            mov constC,AL
+            ja errorConsC                           ;si es mayor, es un error caracter invalido
+            sub AL,30h                              ;resta 30, valor nominal
+            cmp varAuxB,00h                         ;compara varAuxB con 0
+            ja seguDig                              ;si es mayor es el segundo digito
+            mov AH,AL                               ;mover el primer digito a AH                          
+            mov DL,0Ah                              ;guarda 10 en DL
+            mul DL                                  ;multiplica el primer digito por 10
+            mov constC,AL                           ;guarda el resultado en constC
             inc varAuxB
             jmp constanteC
             seguDig:
-            add constC,AL
-            xor DH,DH
+            add constC,AL                           ;suma el segundo digito a constC
+            xor DH,DH 
             mov DL,constC
-            mov varAuxW,DX
-            call compA2
-            mov DX,varAuxW
-            mov constC,DL
+            mov varAuxW,DX 
+            call compA2                             ;verifica sí es necesario complemento A2
+            mov DX,varAuxW 
+            mov constC,DL                           ;constanteC tiene el valor de la constante de integración
             call pausa
         call limpPant
         mov AX,13h                                  ;modo video

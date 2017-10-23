@@ -324,6 +324,13 @@ code segment
             ;modo video permite valores hasta 63
             ;dividir entre 4 para un valor valido
             shr AL,2
+            cmp opcGrafi,08h
+            jne rojoNeg
+            add AL,16h
+            cmp AL,3FH
+            jbe rojoNormal
+            mov AL,3FH
+            rojoNeg:
             cmp opcGrafi,09h
             jne rojoNormal
             not AL
@@ -331,6 +338,13 @@ code segment
             out DX,AL                               ;Mandar el valor del rojo por el puerto 3C9h
             mov AL,[SI+1]                           ;Obtener el valor para el verde
             shr AL,2                                ;Obtener el valor para el verde
+            cmp opcGrafi,08h
+            jne verdeNeg
+            add AL,16h
+            cmp AL,3FH
+            jbe verdeNormal
+            mov AL,3FH
+            verdeNeg:
             cmp opcGrafi,09h
             jne verdeNormal
             not AL
@@ -338,6 +352,13 @@ code segment
             out DX,AL                               ;Mandar el valor del verde por el puerto
             mov AL,[si]                             ;Obtener el valor para el azul
             shr AL,2
+            cmp opcGrafi,08h
+            jne azulNeg
+            add AL,16h
+            cmp AL,3Fh
+            jbe azulNormal
+            mov AL,3Fh
+            azulNeg:
             cmp opcGrafi,09h
             jne azulNormal
             not AL
@@ -457,16 +478,28 @@ code segment
             jbe loopCol
             mov CX,0C8h
             loopCol:
-                mov AL,[SI]                             ;mueve DS:SI a AL
+                mov AL,[SI]                             ;mueve DS:SI a AL, byte que representa el pixel
 
-                mov DX,0C7h
-                sub DX,ColumnasOr
+                cmp opcGrafi,03h                        ;
+                je rotIzq
+                mov DX,ColumnasOr
                 mov DI,DX
                 shl DX,06h
                 shl DI,08h
                 add DI,DX
                 add DI,filasOr
-
+                jmp PasarMemVideo
+                rotIzq:
+                mov DX,0C8h
+                sub DX,ColumnasOr
+                mov DI,DX
+                shl DX,06h
+                shl DI,08h
+                add DI,DX
+                mov DX,BMPHeight
+                sub DX,filasOr
+                add DI,DX
+                PasarMemVideo:
                 mov ES:[DI],AL                          ;mueve AL a ES:DI
                 inc SI                                  ;decrementa SI
                 inc ColumnasOr
@@ -513,88 +546,98 @@ code segment
         jmp menuPrin                                ;Si no es ninguna opcion, se mantiene en el menu
 
     menuOpe:
-        mov opcGrafi,01h
+        mov opcGrafi,01h                            
         call limpPant
         imprimir stringMenOpe
         call pausa
         cmp AL,31h                                  ;compara si es la opción uno 
-        je  mosImagen                               ;salta a Ingresar la dirección de la imagen
-        cmp AL,32h                                  ;compara si es la opción uno 
-        je  menGira                                 ;salta a Ingresar la dirección de la imagen
+        je  llamaMosImag                            ;salta a mostrar la imagen
+        cmp AL,32h                                  ;compara si es la opción dos
+        je  menGira                                 ;salta a Menú Girar
         inc opcGrafi
-        cmp AL,33h                                  ;compara si es la opción uno 
-        je  menVolt                                 ;salta a Ingresar la dirección de la imagen
+        cmp AL,33h                                  ;compara si es la opción tres
+        je  menVolt                                 ;salta a Menú voltear
         mov opcGrafi,07h
-        cmp AL,34h                                  ;compara si es la opción uno 
-        je  mosImagen                               ;salta a Ingresar la dirección de la imagen
+        cmp AL,34h                                  ;compara si es la opción cuatro
+        je  llamaMosImag                            ;salta a mostrar la imagen
         mov opcGrafi,08h
-        cmp AL,35h                                  ;compara si es la opción uno 
-        je  mosImagen                               ;salta a Ingresar la dirección de la imagen
+        cmp AL,35h                                  ;compara si es la opción cinco 
+        je  llamaMosImag                            ;salta a mostrar la imagen
         mov opcGrafi,09h
-        cmp AL,36h                                  ;compara si es la opción uno 
-        je  mosImagen                               ;salta a Ingresar la dirección de la imagen
-        cmp AL,37h                                  ;compara si es la opción uno 
-        je  Reporte                                 ;salta a Ingresar la dirección de la imagen
-        cmp AL,38h
-        je  menuPrin
-        jmp menuOpe
+        cmp AL,36h                                  ;compara si es la opción seis
+        je  llamaMosImag                            ;salta a mostrar la imagen
+        cmp AL,37h                                  ;compara si es la opción siete
+        je  Reporte                                 ;salta a la generación de reporte
+        cmp AL,38h                                  ;compara si es la opción ocho
+        je  menuPrin                                ;salta a Menú principal
+        jmp menuOpe                                 ;si no es ninguna, muestra el menú operaciones 
+        llamaMosImag:
+        call mosImagen                              ;llamada al método mostrar imagen
+        jmp menuOpe                                 ;al terminar el método mostrar imagen, muestra el menú
 
     ;Menú con la opciones de Girar
     menGira:
-        mov opcGrafi,02h
+        mov opcGrafi,02h                            ;establece la opción a graficar en 2, Girar Derecha
         call limpPant
         imprimir stringMenGir
-        call pausa
-        cmp AL,31h
-        je mosImagen
-        inc opcGrafi
-        cmp AL,32h
-        je mosImagen
-        inc opcGrafi
-        cmp AL,33h
-        je mosImagen
-        call pausa
+        call pausa                                  ;captura la tecla presionada
+        cmp AL,31h                                  ;compara la tecla presionada con 1 en ASCII
+        je llamaMosImg                              ;si es la tecla 1, llama el método mostrar imagen
+        inc opcGrafi                                ;establece la opción a graficar en 3, Girar Izquierda
+        cmp AL,32h                                  ;compara la tecla presionada con 2 en ASCII
+        je llamaMosImg                              ;si es la tecla 2, llama el método motrar imagen
+        inc opcGrafi                                ;establece la opción a graficar en 4, Girar 180
+        cmp AL,33h                                  ;si es la tecla 3, llama el método mostrar imagen
+        je llamaMosImg                              ;si es la tecla 3, llama el método motrar imagen
+        cmp AL,67h                                  ;compara la tecla presionada con G
+        je menuOpe                                  ;si es la tecla G, regresa al menú operaciones
+        jmp menGira                                 ;si no es ninguna de las teclas anteriores, muestra nuevamente el menú
+        llamaMosImg:
+        call mosImagen                              ;llamada al método mostrar imagen
         jmp menGira
     ;Menú con las opciones de votear
     menVolt:
-        mov opcGrafi,05h
+        mov opcGrafi,05h                            ;establece la opción a graficar en 5, voltear 
         call limpPant
         imprimir stringMenVol
-        call pausa
-        cmp AL,31h
-        je  mosImagen
-        inc opcGrafi
-        cmp AL,32h
-        je mosImagen
-        cmp AL,76h
-        je  menuPrin
-        jmp menVolt
+        call pausa                                  ;captura la tecla presionada
+        cmp AL,31h                                  ;compara si la tecla es 1 en ASCII
+        je  llamaMosIg                              ;si es la tecla 1, llama al método mostrar imagen
+        inc opcGrafi                                ;si no incrementa la opción a graficar
+        cmp AL,32h                                  ;compara si la tecla es 2 en ASCII
+        je  llamaMosIg                              ;si es la tecla 2, llama al método mostrar imagen
+        cmp AL,76h                                  ;compara si la tecla es V en ASCII
+        je  menuOpe                                 ;si es la tecla V, regresa al menú Operaciones 
+        jmp menVolt                                 ;cualquier otra tecla, muestra nuevamente el menú voltear 
+        llamaMosIg:
+        call mosImagen                              ;llamada al metodo mostrar imagen
+        jmp menVolt                                 ;al terminar el metodo mostrar imagen, muestra el menú voltear 
     ;petición y verificación del path
     ingDir:
-        call limpPant
+        call limpPant                               
         imprimir msgIngDir
-        call obtDirArch
-        jmp verifPath
+        call obtDirArch                             ;llamada al metodo obtener dirección
+        jmp verifPath                               ;salta a verificar la dirección ingresada
     ;metodo para verificar el path
     verifPath:
         dec SI
-        cmp pathArchivo[SI],70h
-        jne ingDir
+        cmp pathArchivo[SI],70h                     ;compara si el último caracter es P
+        jne ingDir                                  ;si no lo es muestra error
+        dec SI                                      
+        cmp pathArchivo[SI],6Dh                     ;compara si el caracter es M
+        jne ingDir                                  ;si no es muestra error
         dec SI
-        cmp pathArchivo[SI],6Dh
-        jne ingDir
-        dec SI
-        cmp pathArchivo[SI],62h
-        jne ingDir
-        dec SI
-        cmp pathArchivo[SI],2Eh
-        jne ingDir
-        jmp menuOpe
+        cmp pathArchivo[SI],62h                     ;compara si el caracter es B
+        jne ingDir                                  ;si no es muestra error
+        dec SI                                      
+        cmp pathArchivo[SI],2Eh                     ;compara si el caracter es el .
+        jne ingDir                                  ;si no es igual muestra error
+        jmp menuOpe                                 ;si llega a este punto, muestra el menú de operaciones
 
     ;Mostrar imagen
-    mosImagen:
+    mosImagen proc
         call modVid                                 ;modo video resolucion de 320x200
-        lea DX,ruta                                 ;Ruta de la imagen
+        lea DX,pathArchivo                          ;Ruta de la imagen
 
         ; Guardar los registros en la pila
         push AX
@@ -606,30 +649,24 @@ code segment
         push SI
         push DI
       
-        ; Abrir el archivo 
-        call abrirModLec           
-        ; Error? Desplegar mensaje de error y salir
-        jc errorAbrirIMG
-        ; Colocar el manejador del archivo en BX
-        mov handle,AX
-        ; Leer el encabezado de 54 bytes que contiene la 
-        ; informacion del archivo BMP
-        call leerHeader
-        ; No es un archivo BMP valido? Desplegar mensaje de error
-        ; y salir
-        jc InvalidBMP
-        ; Leer la paleta del BMP y colocarla en el buffer
-        call ReadPal
-        push es
-        cmp opcGrafi,03h
-        jne cargaNormal
-        call LoadBMPRot
-        jmp finCarga
+        call abrirModLec                            ;Abrir el archivo        
+        jc errorAbrirIMG                            ;Mostrar mensaje de error y salir
+        mov handle,AX                               ;Colocar el manejador del archivo en BX
+        call leerHeader                             ;Leer el encabezado con la información del BMp
+        jc InvalidBMP                               ;mostrar mensaje error, BMP invalido
+        call ReadPal                                ;Leer la paleta del BMP y cargarla en el buffer
+        push ES                                     ;Guardar el Extra Segment en la Pila
+        cmp opcGrafi,03h                            ;Compara si la opción seleccionada fue la 3, Rotar Derecha
+        je  rotada                                  ;si es igual, salta a rotada
+        cmp opcGrafi,02h                            ;compara si la opción seleccionada fue la 2, Rotar izquierda
+        jne cargaNormal                             ;si no es igual salta a la carga normal de la imagen
+        rotada:
+        call LoadBMPRot                             ;llama al metodo para rotar la imagen, izquierda o derecha
+        jmp finCarga                                ;al terminar salta a cerrar el archivo
         cargaNormal:
-        ; Cargar la imagen y desplegarla
-        call LoadBMP
+        call LoadBMP                                ;Cargar la imagen y desplegarla
         finCarga:
-        pop es
+        pop ES
 
         ; Cerrar el archivo
         mov BX,handle
@@ -637,11 +674,11 @@ code segment
         jmp ProcDone
 
         errorAbrirIMG:
-        imprimir msgErAbrBMP
+        imprimir msgErAbrBMP                        ;imprime en pantalla el mensaje de error, al abrir el archivo
         jmp ProcDone
 
         InvalidBMP:
-        imprimir msgErInvBMP
+        imprimir msgErInvBMP                        ;imprime en pantalla el mensaje de que es un BMP invalido
         jmp ProcDone
 
         ProcDone:
@@ -654,10 +691,10 @@ code segment
         pop DX
         pop CX
         pop AX
-        ; Esperar por cualquier tecla
-        call pausa
+        call pausa                                  ;hace una pausa, espera el ingreso de una tecla
         call limpPant
-        jmp menuOpe
+        ret
+    endp
 
     ;[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[ Generación de Reporte ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
     ;Generar Reporte
@@ -778,5 +815,4 @@ start:
     mov ax, 4c00h ; exit to operating system.
     int 21h    
 ends
-
 end start ; set entry point and stop the assembler.

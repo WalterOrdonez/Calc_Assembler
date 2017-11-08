@@ -396,38 +396,7 @@ code segment
     	salirBusPunYComa:
     	ret
     endp
-    ;Leer Archivo y mostrar su contenido
-    ;en pantalla
-    ;DS:DX: dirección del archivo
-    LeerRep proc
-    	xor AL,AL 								;AL=0 Archivo en modo lectura 
-    	call abrirArch 							;abrir en modo lectura el archivo
-    	mov handle,AX
-    	jc errorAbrArch 	                  	;Mostrar mensaje de error y salir
-    	loopLeerTop:
-	    	call buscarComa 					;Guarda lo que está antes de la coma (Nombre usuario)
-	    	cmp bandError,01h 					;compara si la bandera error está prendida
-	    	je salirLeerTop 					;si lo está, se llegó al final del archivo
-	    	mov stringTemp[SI],24h 				;Agrega fin de cadena a lo leído
-	    	imprimir stringTemp 				;imprime en pantalla lo leído
-	    	imprimir tab 						;agrega una tabulación
-	    	imprimir tab
-	    	call buscarComa 					;Guarda lo que está antes de la coma (Puntos)
-	    	mov stringTemp[SI],24h 				;Agrega fin de cadena a lo leído
-	    	imprimir stringTemp 				;imprime en pantalla lo leído
-	    	imprimir tab
-	    	imprimir tab
-	    	call buscarPuntoComa 				;Guarda lo que está antes del punto y coma (Nivel)	
-	    	mov stringTemp[SI],24h 				;Agrega fin de cadena a lo leído
-	    	imprimir stringTemp 				;imprime en pantalla lo leído
-	    	imprimir saltoLin 					;imprime en pantalla un salto de línea
-    	jmp loopLeerTop
-    	salirLeerTop:
-    	mov BX,handle 							;handle del archivo a cerrar
-    	call cerrarArch 						;cerrar el archivo
-    	ret
-   	endp
-   	;Guarda el estado del juego en los reportes
+    ;Guarda el estado del juego en los reportes
    	archEst proc
    		lea DX,dirArchTopEs
     	mov AL,01h 								;AL=01h modo Escritura

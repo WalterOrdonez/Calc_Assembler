@@ -47,6 +47,10 @@ data segment
                         db "3- Salir",0Dh,0Ah,"$"
     ;+++++++++++++++++++++++++++++++++++++++ Variables +++++++++++++++++++++++++++++++++++++++++++ 
     ;......................................... Número ............................................
+    ;Cantidad Bloques Destruidos
+    blockDest 			db 0
+    aparPel2 			db 0
+    aparPel3 			db 0
     ;dirección actual de las pelotas
     dirPel1 			db 07h
     dirPel2 			db 01h
@@ -920,6 +924,7 @@ code segment
     	mov DL,posFF[SI] 						;Fila final del bloque
     	call pintarBlock 						;Pinta el bloque
     	mov estadoBlock[SI],00h					;deshabilita el bloque, 00h
+    	inc blockDest
     	cmp nivel,03h
     	jne puntNivel2
     	inc puntos
@@ -1313,6 +1318,7 @@ code segment
 	;+++++++++++++++++++++++++++++++++++++++ Etiquetas +++++++++++++++++++++++++++++++++++++++++++
 	;Menu principal de la aplicación
     menuPrin:
+        mov blockDest,00h
         mov tiempo,00h
         mov puntos,00h
         mov filPel1,98h 						;fila inicial de la primer pelota 
@@ -1473,6 +1479,10 @@ code segment
 
 	    	cmp nivel,02h 						;compara si el nivel actual es el 2
 	    	jb delayMovimiento 					;si es menor no pinta la pelota 2
+	    	mov DH,aparPel2
+	    	cmp blockDest,DH
+	    	jb delayMovimiento
+
 	    	mov AL,filPel2 						
 	    	mov AH,colPel2
 	    	mov BL,0Ch
@@ -1480,6 +1490,9 @@ code segment
 
 	    	cmp nivel,03h 						;compara si el nivel actual es el 3
 	    	jb delayMovimiento 					;si es menor no pinta la pelota 3
+	    	mov DH,aparPel3
+	    	cmp blockDest,DH
+	    	jb delayMovimiento
 	    	mov AL,filPel3 						
 	    	mov AH,colPel3
 	    	mov BL,0Eh
@@ -1509,6 +1522,9 @@ code segment
 	    	despintarPel2:
 	    	cmp nivel,02h 						;compara si el nivel actual es el 2
 	    	jb contCiclos 						;si es menor, no despinta la pelota 2
+	    	mov DH,aparPel2
+	    	cmp blockDest,DH
+	    	jb contCiclos
 	    	mov AL,filPel2
 	    	mov AH,colPel2
 	    	mov BL,00h
@@ -1520,6 +1536,8 @@ code segment
 	    	mov filPel2,AL
 	    	mov colPel2,AH
 	    	mov dirPel2,DL
+	    	cmp AL,0B3h 						;si la pelota sale por la parte inferior
+	    	jae salirJuego 						;se sale del juego (el usuario perdió)
 	    	cmp punteo,01h 						;comprueba si el usuario hizo puntos
 	    	jne despintarPel3					;sino no actualiza los puntos del usuario en pantalla
 	    	;imprime los puntos del usuario
@@ -1527,6 +1545,9 @@ code segment
 	    	despintarPel3:
 	    	cmp nivel,03h 						;compara si el nivel actual es el 2
 	    	jb contCiclos 	 					;si es menor, no despinta la pelota 2
+	    	mov DH,aparPel3
+	    	cmp blockDest,DH
+	    	jb contCiclos
 	    	mov AL,filPel3
 	    	mov AH,colPel3
 	    	mov BL,00h
@@ -1571,6 +1592,8 @@ code segment
 	    saleJuegoGanado:
 	    call limpBuffTecl
     	call pausa
+    	cmp AL,20h
+    	jne saleJuegoGanado
     	call archEst
     	jmp menuPrin
     ;Genera una pausa en el juego
@@ -1584,6 +1607,7 @@ code segment
     	jmp pausaJuego
     ;Sube al siguiente nivel del juego
     SiguienteNivel:
+    	mov blockDest,00h
     	call limpBuffTecl 						;limpia el buffer del teclado
     	inc nivel
     	cmp nivel,04h 							;compara si el siguiente nivel es 3
@@ -1603,16 +1627,19 @@ code segment
     	mov filPel2,98h
     	mov colPel2,09Fh
     	mov dirPel2,01h
-    	mov filPel3,78h
+    	mov filPel3,60h
     	mov colPel3,09Fh
     	mov dirPel3,07h
     	cmp nivel,02h
     	ja tiempoNivel3
+    	mov aparPel2,05h
     	mov CXNivel,00h
     	mov DXNivel,0C350h 
     	mov ciclosNivel,14h
     	jmp contJuego
     	tiempoNivel3:
+    	mov aparPel2,04h
+    	mov aparPel3,08h
     	mov CXNivel,00h
     	mov DXNivel,9088h 
     	mov ciclosNivel,1Bh
